@@ -1,0 +1,21 @@
+// --- ENGLISH ---
+PhotoSection: 'Photos',
+VideoSection: 'Videos',
+addPhoto: 'Add Photo',
+addVideo: 'Add Video',
+choosePhoto: 'Choose Photo',
+chooseVideo: 'Choose Video',
+caption: 'Caption',
+noPhotos: 'No photos uploaded yet.',
+noVideos: 'No videos uploaded yet.',
+
+// --- ARABIC ---
+PhotoSection: 'الصور',
+VideoSection: 'الفيديوهات',
+addPhoto: 'إضافة صورة',
+addVideo: 'إضافة فيديو',
+choosePhoto: 'اختر صورة',
+chooseVideo: 'اختر فيديو',
+caption: 'التعليق',
+noPhotos: 'لم يتم تحميل أي صور بعد.',
+noVideos: 'لم يتم تحميل أي فيديو بعد.',

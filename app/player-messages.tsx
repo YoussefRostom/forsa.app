@@ -1,0 +1,377 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useRef, useState, useEffect } from 'react';
+import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Image, Alert } from 'react-native';
+import HamburgerMenu from '../components/HamburgerMenu';
+import { useHamburgerMenu } from '../components/HamburgerMenuContext';
+import i18n from '../locales/i18n';
+import { subscribeToConversations, Conversation, findAdminUserId, getOrCreateConversation } from '../services/MessagingService';
+import { getChattableUsers, startConversationWithUser } from '../services/BookingMessagingService';
+
+export default function PlayerMessagesScreen() {
+  const { openMenu } = useHamburgerMenu();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [chattableUsers, setChattableUsers] = useState<Array<{userId: string; name: string; photo?: string; role: string}>>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingChattable, setLoadingChattable] = useState(false);
+  const router = useRouter();
+
+  React.useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      easing: Easing.out(Easing.exp),
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const unsubscribe = subscribeToConversations((convs) => {
+      setConversations(convs);
+      setLoading(false);
+    });
+
+    // Load chattable users (for empty state)
+    loadChattableUsers();
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const loadChattableUsers = async () => {
+    try {
+      setLoadingChattable(true);
+      const users = await getChattableUsers();
+      setChattableUsers(users);
+    } catch (error) {
+      console.error('Error loading chattable users:', error);
+    } finally {
+      setLoadingChattable(false);
+    }
+  };
+
+  const handleStartChat = async (userId: string, name: string) => {
+    try {
+      const conversationId = await startConversationWithUser(userId);
+      router.push({
+        pathname: '/player-chat',
+        params: {
+          conversationId,
+          otherUserId: userId,
+          name
+        }
+      });
+    } catch (error: any) {
+      console.error('Error starting chat:', error);
+      Alert.alert(i18n.t('error') || 'Error', error.message || 'Failed to start conversation');
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <LinearGradient
+        colors={['#000000', '#1a1a1a', '#2d2d2d']}
+        style={styles.gradient}
+      >
+      <HamburgerMenu />
+        <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
+              <Ionicons name="menu" size={24} color="#fff" />
+      </TouchableOpacity>
+            <View style={styles.headerContent}>
+              <Text style={styles.headerTitle}>{i18n.t('messages') || 'Messages'}</Text>
+              <Text style={styles.headerSubtitle}>{i18n.t('yourConversations') || 'Your conversations'}</Text>
+            </View>
+            <TouchableOpacity style={{ position: 'absolute', right: 16, top: Platform.OS === 'ios' ? 60 : 40 }} onPress={async () => {
+              try {
+                const adminId = await findAdminUserId();
+                if (!adminId) { Alert.alert('No admin found'); return; }
+                const convId = await getOrCreateConversation(adminId);
+                router.push({ pathname: '/player-chat', params: { conversationId: convId, otherUserId: adminId, name: 'Admin' } });
+              } catch (err) { console.error(err); }
+            }}>
+              <View style={{ backgroundColor: 'transparent', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }}>
+                <Text style={{ color: '#fff', fontWeight: '600' }}>Text Admin</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView 
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {loading ? (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator size="large" color="#fff" />
+                <Text style={styles.emptyText}>{i18n.t('loading') || 'Loading...'}</Text>
+              </View>
+            ) : conversations.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="chatbubbles-outline" size={64} color="rgba(255, 255, 255, 0.3)" />
+                <Text style={styles.emptyText}>{i18n.t('noConversations') || 'No conversations yet'}</Text>
+                <Text style={styles.emptySubtext}>{i18n.t('startChatting') || 'Start chatting with academies and clinics you\'ve booked!'}</Text>
+                
+                {loadingChattable ? (
+                  <ActivityIndicator size="small" color="#fff" style={{ marginTop: 20 }} />
+                ) : chattableUsers.length > 0 ? (
+                  <View style={styles.chattableUsersContainer}>
+                    <Text style={styles.chattableUsersTitle}>Start a conversation:</Text>
+                    {chattableUsers.map((user) => (
+                      <TouchableOpacity
+                        key={user.userId}
+                        style={styles.chattableUserCard}
+                        onPress={() => handleStartChat(user.userId, user.name)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.chattableUserAvatar}>
+                          {user.photo ? (
+                            <Image source={{ uri: user.photo }} style={styles.chattableUserAvatarImage} />
+                          ) : (
+                            <Ionicons name="person-circle" size={32} color="#fff" />
+                          )}
+                        </View>
+                        <Text style={styles.chattableUserName}>{user.name}</Text>
+                        <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.viewBookingsButton}
+                    onPress={() => router.push('/player-bookings')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.viewBookingsButtonText}>View My Bookings</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              conversations.map((item) => {
+                const displayName = item.otherParticipantName || 'Unknown';
+                const lastMsg = item.lastMessage || '';
+                const unreadCount = item.unreadCount || 0;
+                const lastMsgTime = item.lastMessageAt?.toDate?.() 
+                  ? new Date(item.lastMessageAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : '';
+
+                return (
+                  <TouchableOpacity 
+                    key={item.id}
+                    style={styles.conversationCard} 
+                    onPress={() => router.push({ 
+                      pathname: '/player-chat', 
+                      params: { 
+                        conversationId: item.id, 
+                        otherUserId: item.otherParticipantId || '',
+                        name: displayName 
+                      } 
+                    })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.avatarContainer}>
+                      {item.otherParticipantPhoto ? (
+                        <Image source={{ uri: item.otherParticipantPhoto }} style={styles.avatarImage} />
+                      ) : (
+                        <Ionicons name="person-circle" size={48} color="#000" />
+                      )}
+                    </View>
+                    <View style={styles.conversationContent}>
+                      <View style={styles.conversationHeader}>
+                        <Text style={styles.conversationName}>{displayName}</Text>
+                        {unreadCount > 0 && (
+                          <View style={styles.unreadBadge}>
+                            <Text style={styles.unreadText}>{unreadCount}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.lastMessage} numberOfLines={1}>
+                        {lastMsg || 'No messages yet'}
+                      </Text>
+                      {lastMsgTime && (
+                        <Text style={styles.lastMessageTime}>{lastMsgTime}</Text>
+                      )}
+                  </View>
+                    <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+                );
+              })
+            )}
+        </ScrollView>
+        </Animated.View>
+      </LinearGradient>
+      </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  gradient: {
+    flex: 1,
+  },
+  header: {
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  menuButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerContent: {
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 80,
+  },
+  emptyText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 24,
+    textAlign: 'center',
+  },
+  emptySubtext: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  conversationCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  avatarContainer: {
+    marginRight: 16,
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  conversationContent: {
+    flex: 1,
+  },
+  conversationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  conversationName: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: '#000',
+  },
+  unreadBadge: {
+    backgroundColor: '#000',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  unreadText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  lastMessage: {
+    color: '#666',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  lastMessageTime: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+  },
+  chattableUsersContainer: {
+    marginTop: 24,
+    width: '100%',
+  },
+  chattableUsersTitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  chattableUserCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  chattableUserAvatar: {
+    marginRight: 12,
+  },
+  chattableUserAvatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  chattableUserName: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  viewBookingsButton: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    marginTop: 24,
+  },
+  viewBookingsButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+});

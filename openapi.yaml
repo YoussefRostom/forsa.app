@@ -1,0 +1,127 @@
+openapi: 3.0.0
+info:
+  title: Forsa App API (Firebase/Firestore)
+  description: Documentation of the Firestore collections and data structures used in the Forsa App.
+  version: 1.0.0
+
+servers:
+  - url: https://firestore.googleapis.com/v1/projects/forsa-2923d/databases/(default)/documents
+    description: Firebase Firestore Production API
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [player, agent, academy, parent, clinic, admin]
+        status:
+          type: string
+          enum: [active, pending, suspended]
+        profilePhoto:
+          type: string
+          format: uri
+        createdAt:
+          type: string
+          format: date-time
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        playerId:
+          type: string
+          description: UID of the user who made the booking
+        providerId:
+          type: string
+          description: UID of the academy/clinic
+        type:
+          type: string
+          enum: [academy, clinic]
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled, completed]
+        date:
+          type: string
+          format: date
+        price:
+          type: number
+        ageGroup:
+          type: string
+        program:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        content:
+          type: string
+        mediaUrl:
+          type: string
+          format: uri
+        type:
+          type: string
+          enum: [image, video]
+        createdAt:
+          type: string
+          format: date-time
+
+paths:
+  /users:
+    get:
+      summary: List all users (Admin only)
+      responses:
+        '200':
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /bookings:
+    post:
+      summary: Create a new booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Booking'
+      responses:
+        '201':
+          description: Booking created Successfully
+
+    get:
+      summary: List bookings with filters
+      parameters:
+        - name: playerId
+          in: query
+          schema:
+            type: string
+        - name: providerId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of bookings

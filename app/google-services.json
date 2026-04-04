@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "522700743019",
+    "project_id": "forsa-2923d",
+    "storage_bucket": "forsa-2923d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:522700743019:android:b4dd16cf0eb333c03a6c2e",
+        "android_client_info": {
+          "package_name": "com.youssefrostom.forsaapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4Z3Z2GFtmWJD9KpMi4tgfdFznzPacNJw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

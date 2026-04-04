@@ -1,0 +1,353 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================
+    // Helpers
+    // =========================
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    // Admin allowlist (stored as /admins/{uid})
+    function isAdmin() {
+      return isAuthed() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function userRole() {
+      return isAuthed()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function hasRole(role) {
+      return isAuthed()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isConversationParticipant(conversationId) {
+      return isAuthed()
+        && exists(/databases/$(database)/documents/conversations/$(conversationId))
+        && (
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.participant1Id == request.auth.uid ||
+          get(/databases/$(database)/documents/conversations/$(conversationId)).data.participant2Id == request.auth.uid
+        );
+    }
+
+    // =========================
+    // 1) /admins - Admin only
+    // =========================
+    match /admins/{uid} {
+      allow get, read, list, create, update, delete: if isAdmin();
+    }
+
+    // =========================
+    // 2) /users - Read all auth, Write own only, Admin full access
+    // =========================
+    match /users/{uid} {
+      // Reads & queries: any authenticated user (NO public access)
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+
+      // Writes: own doc only; admin can write all
+      allow create: if isAuthed() && (request.auth.uid == uid || isAdmin());
+      allow update: if isAuthed() 
+        && (request.auth.uid == uid || isAdmin())
+        && (isAdmin() || request.resource.data.role == resource.data.role); // Role immutable for non-admins
+      allow delete: if isAdmin();
+    }
+
+    // =========================
+    // 3) Role collections - Read all auth, Write own only
+    // /players, /parents, /academies, /clinics, /agents
+    // =========================
+    match /players/{uid} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+      allow create, update, delete: if isAuthed() && request.auth.uid == uid;
+      allow read, write, list: if isAdmin();
+    }
+
+    match /parents/{uid} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+      allow create, update, delete: if isAuthed() && request.auth.uid == uid;
+      allow read, write, list: if isAdmin();
+    }
+
+    match /academies/{uid} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+      allow create, update, delete: if isAuthed() && request.auth.uid == uid;
+      allow read, write, list: if isAdmin();
+    }
+
+    match /clinics/{uid} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+      allow create, update, delete: if isAuthed() && request.auth.uid == uid;
+      allow read, write, list: if isAdmin();
+    }
+
+    match /agents/{uid} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+      allow create, update, delete: if isAuthed() && request.auth.uid == uid;
+      allow read, write, list: if isAdmin();
+    }
+
+    // =========================
+    // 4) /posts, /media - Read all (authed), Create/Update/Delete own only
+    // MUST include list for feeds (queries)
+    // MUST validate ownerId == auth.uid on create
+    // MUST prevent ownerId changes on update
+    // =========================
+    match /posts/{postId} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+
+      allow create: if isAuthed()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      allow update: if isAuthed()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if isAuthed() && resource.data.ownerId == request.auth.uid;
+
+      allow read, write, list: if isAdmin();
+    }
+
+    match /media/{mediaId} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+
+      allow create: if isAuthed()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      allow update: if isAuthed()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId;
+
+      allow delete: if isAuthed() && resource.data.ownerId == request.auth.uid;
+
+      allow read, write, list: if isAdmin();
+    }
+
+    // =========================
+    // 5) Role-based collections (queries require list)
+    // /bookings, /conversations, /messages, /checkins, /notifications, /reports
+    // =========================
+    match /bookings/{bookingId} {
+      // User involved (as customer or provider) OR admin
+      allow get, read: if isAuthed() && (
+        resource.data.playerId == request.auth.uid ||
+        resource.data.parentId == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.academyId == request.auth.uid ||
+        resource.data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Queries are allowed for authed users; per-doc read still enforced above.
+      allow list: if isAuthed();
+
+      // Create: requester must be the customer (player, parent, userId, or academy)
+      allow create: if isAuthed() && (
+        request.resource.data.playerId == request.auth.uid ||
+        request.resource.data.parentId == request.auth.uid ||
+        request.resource.data.userId == request.auth.uid ||
+        request.resource.data.academyId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow update, delete: if isAuthed() && (
+        resource.data.playerId == request.auth.uid ||
+        resource.data.parentId == request.auth.uid ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.academyId == request.auth.uid ||
+        resource.data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    match /conversations/{conversationId} {
+      // Allow authenticated users to check for existence (getDoc) when the
+      // conversation does not yet exist, so getOrCreateConversation() can work.
+      // For existing docs, restrict reads to participants or admin.
+      allow get, read: if isAuthed() && (
+        resource == null ||     // non-existent doc: allow the read attempt
+        resource.data.participant1Id == request.auth.uid ||
+        resource.data.participant2Id == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Needed for `subscribeToConversations()` queries
+      allow list: if isAuthed();
+
+      allow create: if isAuthed() && (
+        request.resource.data.participant1Id == request.auth.uid ||
+        request.resource.data.participant2Id == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow update, delete: if isAuthed() && (
+        resource.data.participant1Id == request.auth.uid ||
+        resource.data.participant2Id == request.auth.uid ||
+        isAdmin()
+      );
+
+      match /messages/{messageId} {
+        allow get, read: if isAuthed() && (isConversationParticipant(conversationId) || isAdmin());
+        allow list: if isAuthed() && (isConversationParticipant(conversationId) || isAdmin());
+
+        allow create: if isAuthed()
+          && request.resource.data.senderId == request.auth.uid
+          && (isConversationParticipant(conversationId) || isAdmin());
+
+        // Allow participants to update messages (e.g., mark isRead) and sender to edit their own message.
+        // (Keeps existing app behavior; can be tightened further once schema is stabilized.)
+        allow update, delete: if isAuthed() && (
+          isConversationParticipant(conversationId) ||
+          isAdmin()
+        );
+      }
+    }
+
+    match /checkins/{checkinId} {
+      allow get, read: if isAuthed() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.playerId == request.auth.uid ||
+        resource.data.createdBy == request.auth.uid
+      );
+      allow list: if isAuthed();
+
+      // Create: only academy/clinic, must start as 'pending'
+      allow create: if isAuthed()
+        && (hasRole('academy') || hasRole('clinic'))
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasAll(['userId', 'createdBy', 'status', 'createdAt']);
+
+      // Update: ONLY admin can change status or other fields
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // =========================
+    // 13) /academy_programs - public for signed-in users + academy owner/admin
+    // =========================
+    match /academy_programs/{programId} {
+      allow get, read: if isAuthed() && (
+        isAdmin() ||
+        resource.data.academyId == request.auth.uid ||
+        true // authenticated users can read any program to view academies.
+      );
+
+      allow list: if isAuthed();
+
+      allow create: if isAuthed() && (
+        request.resource.data.academyId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow update, delete: if isAuthed() && (
+        resource.data.academyId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    match /notifications/{notificationId} {
+      allow get, read: if isAuthed() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Needed for `subscribeMyNotifications()` query
+      allow list: if isAuthed();
+
+      // App currently creates notifications client-side (provider/admin notifications too).
+      // Minimal guard: require `createdBy == auth.uid`.
+      allow create: if isAuthed()
+        && request.resource.data.createdBy == request.auth.uid;
+
+      // Recipient can mark as read; admin can do anything.
+      allow update: if isAdmin() || (
+        isAuthed()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.read == true
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow get, read: if isAuthed() && (
+        resource.data.reporterId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow list: if isAdmin(); // admin screens use queries
+
+      allow create: if isAuthed()
+        && request.resource.data.reporterId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    // =========================
+    // 6) /checkInCodes - Check-in code reservation and lookup
+    // Used during signup (player/parent) and for QR code scanning
+    // =========================
+    match /checkInCodes/{codeId} {
+      // Read: Any authenticated user can read (needed for QR scanning/lookup)
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+
+      // Create: User can only reserve a code for themselves (uid must match auth.uid)
+      // This ensures users can't create codes for other users
+      allow create: if isAuthed()
+        && request.resource.data.uid == request.auth.uid;
+
+      // Update/Delete: Only admin (codes are immutable once created)
+      allow update, delete: if isAdmin();
+    }
+
+    // =========================
+    // 7) /settings - Read all auth, Write admin only
+    // =========================
+    match /settings/{settingId} {
+      allow get, read: if isAuthed();
+      allow list: if isAuthed();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // =========================
+    // 8) /emailIndex, /phoneIndex - Login lookup (public read for sign-in)
+    // Maps email/phone to Firebase Auth identity so sign-in can resolve before auth.
+    // =========================
+    match /emailIndex/{docId} {
+      allow get, read: if true;
+      allow list: if false;
+      allow create: if isAuthed();
+      allow update, delete: if isAdmin();
+    }
+    match /phoneIndex/{docId} {
+      allow get, read: if true;
+      allow list: if false;
+      allow create: if isAuthed();
+      allow update, delete: if isAdmin();
+    }
+
+    // =========================
+    // Default deny (NO public access)
+    // =========================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
