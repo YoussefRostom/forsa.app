@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Dimensions,
   Easing,
   KeyboardAvoidingView,
   Modal,
@@ -75,7 +74,7 @@ const SignupParent = () => {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const handleBack = () => {
     if (router.canGoBack?.()) {
@@ -269,11 +268,6 @@ const SignupParent = () => {
   //   ... commented out ...
   // };
 
-
-  // Curved bar dimensions
-  const { width } = Dimensions.get('window');
-  const curveHeight = 120;
-
   const requiredSteps = [
     Boolean(parentName.trim()),
     Boolean(phone.trim()) && !errors.phone,
@@ -315,7 +309,8 @@ const SignupParent = () => {
           <ScrollView
             ref={scrollViewRef}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
             {formError && (
@@ -700,11 +695,6 @@ const styles = StyleSheet.create({
   inputWrapperFocused: {
     borderColor: '#111827',
     backgroundColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
   },
   inputWrapperError: {
     borderColor: '#ff3b30',

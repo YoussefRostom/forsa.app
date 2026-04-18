@@ -58,12 +58,6 @@ const SectionHeader = ({ title, subtitle }: { title: string; subtitle?: string }
     </View>
 );
 
-const Badge = ({ label, color, bg }: { label: string; color: string; bg: string }) => (
-    <View style={{ backgroundColor: bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-        <Text style={{ color, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</Text>
-    </View>
-);
-
 const formatRecordDate = (value: any) => {
     if (!value) return '—';
     if (typeof value?.toDate === 'function') {
@@ -328,7 +322,7 @@ export default function AdminDashboard() {
             }
 
             await logAdminAction({
-                actionType: 'pricing_fixed',
+                actionType: 'pricing_fixed' as any,
                 targetCollection: 'users',
                 targetId: pricingTarget.id,
                 reason: `Pricing fixed from admin dashboard for ${pricingTarget.role}`,
@@ -453,7 +447,7 @@ export default function AdminDashboard() {
             }
 
             await logAdminAction({
-                actionType: 'profile_fixed',
+                actionType: 'profile_fixed' as any,
                 targetCollection: 'users',
                 targetId: profileTarget.id,
                 reason: `Profile fixed from admin dashboard for ${profileTarget.role}`,
@@ -516,7 +510,7 @@ export default function AdminDashboard() {
                             targetUserId: String(targetUserId),
                         };
                     })
-                    .filter(Boolean) as Array<{
+                    .filter(Boolean) as {
                         userId: string;
                         issueLabel: string;
                         issueDetails: string;
@@ -525,7 +519,7 @@ export default function AdminDashboard() {
                         reportTargetType: 'post' | 'user';
                         reportTargetId: string;
                         targetUserId: string;
-                    }>;
+                    }[];
 
                 const uniqueIds = [...new Set(targetRows.map((r) => r.userId))];
                 const userSnaps = await Promise.all(uniqueIds.map((uid) => getDoc(doc(db, 'users', uid))));
@@ -708,13 +702,6 @@ export default function AdminDashboard() {
             <Text style={S.kpiValue}>{value ?? '—'}</Text>
             <Text style={S.kpiTitle}>{title}</Text>
             {!!description && <Text style={S.kpiDesc}>{description}</Text>}
-        </View>
-    );
-
-    const InfoRow = ({ label, value, valueColor }: any) => (
-        <View style={S.infoRow}>
-            <Text style={S.infoLabel}>{label}</Text>
-            <Text style={[S.infoValue, valueColor ? { color: valueColor } : {}]}>{value ?? '—'}</Text>
         </View>
     );
 
@@ -992,7 +979,7 @@ export default function AdminDashboard() {
                     <View style={[S.card, S.emptyCard]}>
                         <Ionicons name="list-outline" size={32} color={C.muted} />
                         <Text style={S.emptyTitle}>No admin actions yet</Text>
-                        <Text style={S.emptyDesc}>When you suspend users, update bookings, or process payouts, they'll appear here.</Text>
+                        <Text style={S.emptyDesc}>When you suspend users, update bookings, or process payouts, they&apos;ll appear here.</Text>
                     </View>
                 ) : (
                     <View style={S.card}>

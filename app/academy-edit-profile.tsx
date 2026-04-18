@@ -4,22 +4,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc, addDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Easing, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
+import { buildBookingBranchPayload, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
 import { auth, db } from '../lib/firebase';
 import { uploadMedia } from '../services/MediaService';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
-
-const AGE_GROUPS = Array.from({ length: 11 }, (_, i) => (7 + i).toString());
-
-function isValidTimeFormat(time: string): boolean {
-  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
-}
-
-const DAYS_OF_WEEK = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 const TIME_OPTIONS: string[] = [];
 for (let h = 0; h < 24; h++) {
@@ -28,46 +20,28 @@ for (let h = 0; h < 24; h++) {
   }
 }
 
-function formatTime12Hour(time24: string): string {
-  if (!time24 || !isValidTimeFormat(time24)) return time24;
-  const [hours, minutes] = time24.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const hours12 = hours % 12 || 12;
-  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
-}
-
 const LOCATION_PICKER_RESULT_KEY = 'academyEditLocationPickerResult';
-
 export default function AcademyEditProfileScreen({ academyName: academyNameProp }: { academyName?: string }) {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [academyName, setAcademyName] = useState(academyNameProp || '');
-  const [city, setCity] = useState('');
   const [description, setDescription] = useState('');
   const [mapUrl, setMapUrl] = useState('');
   const [latitudeInput, setLatitudeInput] = useState('');
   const [longitudeInput, setLongitudeInput] = useState('');
-  const [locationAutofillLoading, setLocationAutofillLoading] = useState(false);
   const [prices, setPrices] = useState<{ [key: string]: string }>({});
   const [selected, setSelected] = useState<string[]>([]);
-  const [newPrice, setNewPrice] = useState('');
-  const [settingAge, setSettingAge] = useState<string | null>(null);
   const { openMenu } = useHamburgerMenu();
   const [profilePic, setProfilePic] = useState<string | null>(null);
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
-  const [address, setAddress] = useState('');
-  const [editingAddress, setEditingAddress] = useState(false);
   const [contactPerson, setContactPerson] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [editingContactPerson, setEditingContactPerson] = useState(false);
   const [schedule, setSchedule] = useState<{ [age: string]: { day: string; time: string } }>({});
-  const [scheduleDropdown, setScheduleDropdown] = useState<{ age: string; type: 'day' | 'time' } | null>(null);
   const [saving, setSaving] = useState(false);
   const router = useRouter();
-  const { width: screenWidth } = useWindowDimensions();
-  const isNarrow = screenWidth < 380;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const [showCityModal, setShowCityModal] = useState(false);
-  const cityOptions = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
   const [initialProfileState, setInitialProfileState] = useState('');
 
   const parseCoordinateValue = (value: string): number | null => {
@@ -103,16 +77,17 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
 
   const [privateTrainings, setPrivateTrainings] = useState<any[]>([]);
   const [deletedTrainings, setDeletedTrainings] = useState<string[]>([]);
+  const [academyLocations, setAcademyLocations] = useState<any[]>([]);
 
   const serializeAcademyState = (state: {
     academyName: string;
-    city: string;
     description: string;
     mapUrl: string;
     latitudeInput: string;
     longitudeInput: string;
-    address: string;
     contactPerson: string;
+    phone: string;
+    email: string;
     prices: { [key: string]: string };
     selected: string[];
     schedule: { [age: string]: { day: string; time: string } };
@@ -135,17 +110,20 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
       specializations: (training?.specializations || '').trim(),
       sessionDuration: String(training?.sessionDuration || '').trim(),
       availability: (training?.availability || '').trim(),
+      branchId: (training?.branchId || '').trim(),
+      branchName: (training?.branchName || '').trim(),
+      branchAddress: (training?.branchAddress || '').trim(),
     }));
 
     return JSON.stringify({
       academyName: state.academyName.trim(),
-      city: state.city.trim(),
       description: state.description.trim(),
       mapUrl: state.mapUrl.trim(),
       latitudeInput: state.latitudeInput.trim(),
       longitudeInput: state.longitudeInput.trim(),
-      address: state.address.trim(),
       contactPerson: state.contactPerson.trim(),
+      phone: state.phone.trim(),
+      email: state.email.trim(),
       prices: sortedPrices,
       selected: [...state.selected].sort(),
       schedule: state.schedule,
@@ -159,7 +137,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
     setPrivateTrainings(prev => prev.map((t, i) => i === index ? { ...t, [field]: value } : t));
   };
   const addTraining = () => {
-    setPrivateTrainings(prev => [...prev, { coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '' }]);
+    setPrivateTrainings(prev => [...prev, { coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '', branchId: '', branchName: '', branchAddress: '' }]);
   };
   const removeTraining = (index: number) => {
     const trainingToRemove = privateTrainings[index];
@@ -176,7 +154,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -220,13 +198,13 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
           setFetchError(i18n.t('couldNotLoadData') || 'Not signed in.');
           setInitialProfileState(serializeAcademyState({
             academyName: '',
-            city: '',
             description: '',
             mapUrl: '',
             latitudeInput: '',
             longitudeInput: '',
-            address: '',
             contactPerson: '',
+            phone: '',
+            email: '',
             prices: {},
             selected: [],
             schedule: {},
@@ -255,11 +233,13 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
           setProfilePicUrl(photoUrl);
         }
         if (data.academyName) setAcademyName(data.academyName);
-        if (data.address) setAddress(data.address);
-        if (data.city) setCity(data.city);
+        // Removed city from main profile (now managed per-branch)
         if (data.description) setDescription(data.description);
         if (data.contactPerson) setContactPerson(data.contactPerson);
+        if (data.phone) setPhone(data.phone);
+        if (data.email) setEmail(data.email);
         if (data.mapUrl) setMapUrl(data.mapUrl);
+        setAcademyLocations(normalizeBookingBranches(data.locations || []));
 
         const savedLatitude = data.latitude ?? data.coordinates?.latitude;
         const savedLongitude = data.longitude ?? data.coordinates?.longitude;
@@ -278,24 +258,28 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
             coachBio: pd.coachBio || '',
             specializations: pd.specializations ? pd.specializations.join(', ') : '',
             sessionDuration: pd.duration ? pd.duration.toString() : '60',
-            availability: pd.availability && pd.availability.general ? pd.availability.general : ''
+            availability: pd.availability && pd.availability.general ? pd.availability.general : '',
+            branchId: pd.branchId || '',
+            branchName: pd.branchName || '',
+            branchAddress: pd.branchAddress || '',
           };
         });
         const nextTrainings = pData.length > 0
           ? pData
-          : [{ coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '' }];
+          : [{ coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '', branchId: '', branchName: '', branchAddress: '' }];
 
         setPrivateTrainings(nextTrainings);
 
         setInitialProfileState(serializeAcademyState({
           academyName: data.academyName || '',
-          city: data.city || '',
+          // Removed city from main profile (now managed per-branch)
           description: data.description || '',
           mapUrl: data.mapUrl || '',
           latitudeInput: savedLatitude !== undefined && savedLatitude !== null ? String(savedLatitude) : '',
           longitudeInput: savedLongitude !== undefined && savedLongitude !== null ? String(savedLongitude) : '',
-          address: data.address || '',
           contactPerson: data.contactPerson || '',
+          phone: data.phone || '',
+          email: data.email || '',
           prices: feesOrPrices,
           selected: nextSelected,
           schedule: nextSchedule,
@@ -312,32 +296,6 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
     fetchProfile();
   }, []);
 
-  const handleSetAge = (age: string) => {
-    setSettingAge(age);
-    setNewPrice('');
-  };
-  const handleSaveAge = (age: string) => {
-    if (newPrice.trim()) {
-      setPrices({ ...prices, [age]: newPrice });
-      if (!selected.includes(age)) {
-        setSelected([...selected, age]);
-      }
-      setSettingAge(null);
-      setNewPrice('');
-    }
-  };
-  const handleEditPrice = (age: string, value: string) => {
-    setPrices({ ...prices, [age]: value });
-  };
-  const handleRemoveAge = (age: string) => {
-    const newPrices = { ...prices };
-    delete newPrices[age];
-    setPrices(newPrices);
-    setSelected(prev => prev.filter(a => a !== age));
-    const newSchedule = { ...schedule };
-    delete newSchedule[age];
-    setSchedule(newSchedule);
-  };
 
   const handlePickPhoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -348,58 +306,6 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setProfilePic(result.assets[0].uri);
-    }
-  };
-
-  const openMapPicker = () => {
-    const cityLabel = cityOptions.find((option) => option.key === city)?.label || city;
-    router.push({
-      pathname: '/academy-location-picker',
-      params: {
-        storageKey: LOCATION_PICKER_RESULT_KEY,
-        title: academyName || (i18n.t('academy_name') || 'Academy'),
-        latitude: latitudeInput,
-        longitude: longitudeInput,
-        city: cityLabel,
-        address,
-      },
-    });
-  };
-
-  const handleUseCurrentLocation = async () => {
-    try {
-      setLocationAutofillLoading(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-
-      if (status !== 'granted') {
-        Alert.alert(
-          i18n.t('locationPermissionNeeded') || 'Location permission needed',
-          i18n.t('locationPermissionMessage') || 'Allow location access to continue.'
-        );
-        return;
-      }
-
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const lat = currentLocation.coords.latitude.toFixed(6);
-      const lng = currentLocation.coords.longitude.toFixed(6);
-
-      setLatitudeInput(lat);
-      setLongitudeInput(lng);
-
-      if (!mapUrl.trim()) {
-        setMapUrl(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
-      }
-    } catch (locationError) {
-      console.warn('Could not fetch current location for academy profile', locationError);
-      Alert.alert(
-        i18n.t('error') || 'Error',
-        i18n.t('locationUnavailable') || 'Could not get your location right now.'
-      );
-    } finally {
-      setLocationAutofillLoading(false);
     }
   };
 
@@ -500,10 +406,11 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
       const updateData: any = {
         fees: feesObj,
         schedule,
-        address: address || null,
         contactPerson: contactPerson || null,
+        phone: phone || null,
+        email: email || null,
         academyName: academyName || null,
-        city: city || null,
+        // Removed city from main profile (now managed per-branch)
         description: description || null,
         mapUrl: mapUrl.trim() || null,
         updatedAt: new Date().toISOString(),
@@ -522,6 +429,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
       // Handle private trainings update
       for (const training of privateTrainings) {
         if (training.coachName && training.privateTrainingPrice) {
+          const selectedBranch = academyLocations.find((branch) => branch.id === training.branchId) || null;
           const programData: any = {
             academyId: uid,
             name: 'Private Training',
@@ -534,6 +442,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
             maxParticipants: 1,
             duration: parseInt(training.sessionDuration) || 60,
             availability: typeof training.availability === 'string' ? { general: training.availability } : (training.availability || null),
+            ...buildBookingBranchPayload(selectedBranch || training),
             isActive: true,
             updatedAt: new Date().toISOString(),
           };
@@ -563,13 +472,14 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
       }
       setInitialProfileState(serializeAcademyState({
         academyName,
-        city,
+        // Removed city from main profile (now managed per-branch)
         description,
         mapUrl,
         latitudeInput,
         longitudeInput,
-        address,
         contactPerson,
+        phone,
+        email,
         prices,
         selected,
         schedule,
@@ -608,13 +518,14 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
     initialProfileState !== '' &&
     serializeAcademyState({
       academyName,
-      city,
+      // Removed city from main profile (now managed per-branch)
       description,
       mapUrl,
       latitudeInput,
       longitudeInput,
-      address,
       contactPerson,
+      phone,
+      email,
       prices,
       selected,
       schedule,
@@ -666,10 +577,15 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
                   <Text style={styles.changeProfileText}>{i18n.t('changeProfilePicture')}</Text>
         </TouchableOpacity>
       </View>
+              <View style={styles.overviewCard}>
+                <Text style={styles.overviewTitle}>{academyName || (i18n.t('academyNameLabel') || 'Academy')}</Text>
+                <Text style={styles.overviewHint}>{i18n.t('academySignupProgressHint') || 'A complete academy profile helps families understand your branches and pricing faster.'}</Text>
+              </View>
+              <Text style={styles.sectionHeading}>{i18n.t('basicInformation') || 'Basic information'}</Text>
 
               {/* Academy Name (editable) */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>{i18n.t('academyNameLabel')}</Text>
+                <Text style={styles.label}>{i18n.t('academyNameLabel') || 'Academy Name'}</Text>
                 <View style={styles.inputWrapper}>
                   <Ionicons name="school-outline" size={20} color="#999" style={styles.inputIcon} />
                   <TextInput
@@ -682,48 +598,30 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
                 </View>
               </View>
 
-              {/* City */}
+              {/* Email */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>{i18n.t('city') || 'City'}</Text>
-                <TouchableOpacity
-                  style={[styles.inputWrapper, styles.cityPickerWrapper]}
-                  onPress={() => setShowCityModal(true)}
-                >
-                  <Ionicons name="location-outline" size={20} color="#999" style={styles.inputIcon} />
-                  <Text style={[styles.cityText, !city && styles.cityPlaceholder]}>
-                    {city ? (cityOptions.find(c => c.key === city)?.label || city) : i18n.t('selectCity') || 'Select City'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color="#999" />
-                </TouchableOpacity>
-                <Modal visible={showCityModal} transparent animationType="fade" onRequestClose={() => setShowCityModal(false)}>
-                  <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCityModal(false)}>
-                    <View style={styles.modalContent}>
-                      <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>{i18n.t('selectCity')}</Text>
-                        <TouchableOpacity onPress={() => setShowCityModal(false)}>
-                          <Ionicons name="close" size={24} color="#000" />
-                        </TouchableOpacity>
-                      </View>
-                      <ScrollView style={styles.modalScrollView}>
-                        {cityOptions.map(option => (
-                          <TouchableOpacity
-                            key={option.key}
-                            style={[styles.cityOption, city === option.key && styles.cityOptionSelected]}
-                            onPress={() => {
-                              setCity(option.key);
-                              setShowCityModal(false);
-                            }}
-                          >
-                            <Text style={[styles.cityOptionText, city === option.key && styles.cityOptionTextSelected]}>
-                              {option.label}
-                            </Text>
-                            {city === option.key && <Ionicons name="checkmark" size={20} color="#fff" />}
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  </TouchableOpacity>
-                </Modal>
+                <Text style={styles.label}>{i18n.t('email') || 'Email'}</Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder={i18n.t('emailPlaceholder') || 'Email'}
+                    placeholderTextColor="#999"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+              </View>
+
+              {/* Phone */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>{i18n.t('phone') || 'Phone'}</Text>
+                <View style={[styles.inputWrapper, styles.disabledInputWrapper]}>
+                  <Ionicons name="call-outline" size={20} color="#bbb" style={styles.inputIcon} />
+                  <Text style={styles.readOnlyValueText}>{phone || (i18n.t('phonePlaceholder') || 'Phone')}</Text>
+                </View>
               </View>
 
               {/* Description */}
@@ -742,84 +640,17 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
                 </View>
               </View>
 
-              {/* Address */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>{i18n.t('address')}</Text>
-        {editingAddress ? (
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="map-outline" size={20} color="#999" style={styles.inputIcon} />
-            <TextInput
-                      style={styles.input}
-              value={address}
-              onChangeText={setAddress}
-              placeholder={i18n.t('addressPlaceholder')}
-                      placeholderTextColor="#999"
-              autoFocus
-            />
-                    <TouchableOpacity onPress={() => setEditingAddress(false)}>
-                      <Ionicons name="checkmark-circle" size={24} color="#000" />
-            </TouchableOpacity>
-          </View>
-        ) : (
-                  <TouchableOpacity 
-                    style={styles.inputWrapper}
-                    onPress={() => setEditingAddress(true)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="map-outline" size={20} color="#999" style={styles.inputIcon} />
-                    <Text style={[styles.input, !address && styles.placeholderText]}>
-                      {address || i18n.t('addressPlaceholder')}
-                    </Text>
-                    <Ionicons name="create-outline" size={20} color="#999" />
-            </TouchableOpacity>
-        )}
-      </View>
 
+              {/* Edit Branches Button */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>{i18n.t('mapCoordinatesOptional') || 'Location on map'}</Text>
-                <Text style={styles.helperText}>
-                  {i18n.t('mapCoordinatesHelper') || 'Choose the academy directly on the map for the best nearest-to-me accuracy, or use your current location.'}
-                </Text>
-                <View style={styles.mapActionsRow}>
-                  <TouchableOpacity
-                    style={styles.mapPickerButton}
-                    onPress={openMapPicker}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name="map-outline" size={18} color="#000" />
-                    <Text style={styles.mapPickerButtonText}>{i18n.t('chooseOnMap') || 'Choose on map'}</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.locationAutofillButton, locationAutofillLoading && styles.locationAutofillButtonDisabled]}
-                    onPress={handleUseCurrentLocation}
-                    disabled={locationAutofillLoading}
-                    activeOpacity={0.85}
-                  >
-                    {locationAutofillLoading ? (
-                      <ActivityIndicator size="small" color="#000" />
-                    ) : (
-                      <Ionicons name="locate-outline" size={18} color="#000" />
-                    )}
-                    <Text style={styles.locationAutofillButtonText}>
-                      {locationAutofillLoading
-                        ? (i18n.t('gettingCurrentLocation') || 'Getting current location...')
-                        : (i18n.t('useCurrentLocation') || 'Use current location')}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.mapStatusPill}>
-                  <Ionicons
-                    name={latitudeInput && longitudeInput ? 'checkmark-circle' : 'pin-outline'}
-                    size={18}
-                    color={latitudeInput && longitudeInput ? '#15803d' : '#6b7280'}
-                  />
-                  <Text style={styles.mapStatusText}>
-                    {latitudeInput && longitudeInput
-                      ? (i18n.t('mapPinSelected') || 'Map pin selected successfully')
-                      : (i18n.t('mapPinNotSelected') || 'No map pin selected yet')}
-                  </Text>
-                </View>
+                <Text style={styles.sectionHeading}>{i18n.t('academyBranchesStep') || 'Branch setup'}</Text>
+                <Text style={styles.label}>{i18n.t('branches') || 'Branches'}</Text>
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => router.push('/academy-branches')}
+                >
+                  <Text style={styles.linkButtonText}>{i18n.t('editBranches') || 'Edit Branches'}</Text>
+                </TouchableOpacity>
               </View>
 
               {/* Contact Person */}
@@ -856,13 +687,15 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
       </View>
 
               {/* Edit Prices Button */}
+              {/* Edit Prices Button (Restored) */}
               <View style={styles.inputGroup}>
+                <Text style={styles.sectionHeading}>{i18n.t('academyPricingStep') || 'Pricing & programs'}</Text>
                 <Text style={styles.label}>{i18n.t('feesPerAgeGroup') || 'Fees per Age Group'}</Text>
                 <TouchableOpacity
-                  style={{ backgroundColor: '#007AFF', borderRadius: 8, padding: 14, marginTop: 8, alignItems: 'center' }}
-                  onPress={() => router.push({ pathname: '/academy-edit-prices', params: { prices } })}
+                  style={styles.linkButton}
+                  onPress={() => router.push('/academy-edit-prices')}
                 >
-                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>{i18n.t('editPrices') || 'Edit Prices'}</Text>
+                  <Text style={styles.linkButtonText}>{i18n.t('editPrices') || 'Edit Prices'}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -898,6 +731,33 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
                     <View style={styles.inputGroupSmall}>
                       <Text style={styles.labelSmall}>{i18n.t('sessionDuration') || 'Duration (min)'}</Text>
                       <TextInput style={styles.inputSmall} value={training.sessionDuration} onChangeText={v => updateTraining(index, 'sessionDuration', v.replace(/[^0-9]/g, ''))} keyboardType="numeric" placeholder="60" placeholderTextColor="#aaa" />
+                    </View>
+                    <View style={styles.inputGroupSmall}>
+                      <Text style={styles.labelSmall}>{i18n.t('trainerBranch') || 'Trainer Branch'}</Text>
+                      {academyLocations.length > 0 ? (
+                        <View style={styles.branchChoiceList}>
+                          {academyLocations.map((branch) => {
+                            const isSelected = training.branchId === branch.id;
+                            return (
+                              <TouchableOpacity
+                                key={branch.id}
+                                style={[styles.branchChoiceButton, isSelected && styles.branchChoiceButtonSelected]}
+                                onPress={() => {
+                                  const payload = buildBookingBranchPayload(branch);
+                                  updateTraining(index, 'branchId', payload.branchId || '');
+                                  updateTraining(index, 'branchName', payload.branchName || '');
+                                  updateTraining(index, 'branchAddress', payload.branchAddress || '');
+                                }}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[styles.branchChoiceText, isSelected && styles.branchChoiceTextSelected]}>{getBranchSummary(branch)}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : (
+                        <Text style={styles.branchChoiceHint}>{i18n.t('addBranchesFirst') || 'Add academy branches first to assign private trainers.'}</Text>
+                      )}
                     </View>
                   </View>
                 ))}
@@ -1031,6 +891,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
   },
+  overviewCard: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 14,
+    marginBottom: 18,
+  },
+  overviewTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  overviewHint: {
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 18,
+  },
   inputGroup: {
     marginBottom: 20,
   },
@@ -1049,6 +928,23 @@ const styles = StyleSheet.create({
     borderColor: '#f5f5f5',
     paddingHorizontal: 16,
     minHeight: 56,
+  },
+  disabledInputWrapper: {
+    backgroundColor: '#f9fafb',
+    borderColor: '#e5e7eb',
+  },
+  readOnlyValueText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#6b7280',
+    paddingVertical: 16,
+  },
+  sectionHeading: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 12,
+    marginTop: 4,
   },
   readOnlyInput: {
     backgroundColor: '#f9f9f9',
@@ -1386,6 +1282,35 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontWeight: '600',
   },
+  branchChoiceList: {
+    gap: 8,
+  },
+  branchChoiceButton: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+  },
+  branchChoiceButtonSelected: {
+    borderColor: '#000',
+    backgroundColor: '#f3f4f6',
+  },
+  branchChoiceText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  branchChoiceTextSelected: {
+    color: '#000',
+  },
+  branchChoiceHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
   inputSmall: {
     backgroundColor: '#fff',
     borderWidth: 1,
@@ -1410,6 +1335,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#000',
+  },
+  linkButton: {
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  linkButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
   },
   schedulePickerBtn: {
     flex: 1,

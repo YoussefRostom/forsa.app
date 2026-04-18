@@ -2,13 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState, useEffect } from 'react';
-import { Animated, Easing, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Image } from 'react-native';
+import { Animated, Easing, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Image, Alert } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
-import { subscribeToConversations, Conversation } from '../services/MessagingService';
-import { getChattableUsers, startConversationWithUser } from '../services/BookingMessagingService';
-import { Alert } from 'react-native';
+import { subscribeToConversations, Conversation, findAdminUserId, getOrCreateConversation } from '../services/MessagingService';
 import { auth } from '../lib/firebase';
 
 export default function AgentContactsScreen() {
@@ -16,11 +14,26 @@ export default function AgentContactsScreen() {
   const { openMenu } = useHamburgerMenu();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [chattableUsers, setChattableUsers] = useState<Array<{userId: string; name: string; photo?: string; role: string}>>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingChattable, setLoadingChattable] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [openingAdminChat, setOpeningAdminChat] = useState(false);
+
+  const openAdminChat = async () => {
+    if (openingAdminChat) return;
+
+    try {
+      setOpeningAdminChat(true);
+      const adminId = await findAdminUserId();
+      if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
+      const convId = await getOrCreateConversation(adminId);
+      router.push({ pathname: '/agent-messages', params: { conversationId: convId, otherUserId: adminId, name: 'Admin' } });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setOpeningAdminChat(false);
+    }
+  };
 
   React.useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -29,7 +42,7 @@ export default function AgentContactsScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   useEffect(() => {
     setLoading(true);
@@ -47,45 +60,13 @@ export default function AgentContactsScreen() {
       setErrorMessage(error?.message || (i18n.t('failedToLoadConversations') || 'Failed to load conversations.'));
     }
 
-    loadChattableUsers();
-
     return () => {
       unsubscribe();
     };
   }, [refreshKey]);
 
-  const loadChattableUsers = async () => {
-    try {
-      setLoadingChattable(true);
-      const users = await getChattableUsers();
-      setChattableUsers(users);
-    } catch (error) {
-      console.error('Error loading chattable users:', error);
-      setErrorMessage(i18n.t('failedToLoadContacts') || 'Failed to load contacts. Please try again.');
-    } finally {
-      setLoadingChattable(false);
-    }
-  };
-
   const handleRetry = () => {
     setRefreshKey((prev) => prev + 1);
-  };
-
-  const handleStartChat = async (userId: string, name: string) => {
-    try {
-      const conversationId = await startConversationWithUser(userId);
-      router.push({
-        pathname: '/agent-messages',
-        params: {
-          conversationId,
-          otherUserId: userId,
-          name
-        }
-      });
-    } catch (error: any) {
-      console.error('Error starting chat:', error);
-      Alert.alert(i18n.t('error') || 'Error', error.message || 'Failed to start conversation');
-    }
   };
 
   return (
@@ -97,9 +78,21 @@ export default function AgentContactsScreen() {
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
       {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
-              <Ionicons name="menu" size={24} color="#fff" />
-        </TouchableOpacity>
+            <View style={styles.headerTopRow}>
+              <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
+                <Ionicons name="menu" size={24} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={openAdminChat} disabled={openingAdminChat} style={{ opacity: openingAdminChat ? 0.6 : 1 }}>
+                <View style={styles.textAdminBtn}>
+                  {openingAdminChat ? (
+                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
+                  ) : (
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+                  )}
+                  <Text style={styles.textAdminText}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('textAdmin') || 'Text Admin')}</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
             <View style={styles.headerContent}>
               <Text style={styles.headerTitle}>{i18n.t('messages') || 'Messages'}</Text>
               <Text style={styles.headerSubtitle}>{i18n.t('yourConversations') || 'Your conversations'}</Text>
@@ -182,39 +175,13 @@ export default function AgentContactsScreen() {
                   </TouchableOpacity>
                 )}
 
-                {loadingChattable ? (
-                  <ActivityIndicator size="small" color="#fff" style={{ marginTop: 20 }} />
-                ) : chattableUsers.length > 0 ? (
-                  <View style={styles.chattableUsersContainer}>
-                    <Text style={styles.chattableUsersTitle}>{i18n.t('startConversationLabel') || 'Start a conversation:'}</Text>
-                    {chattableUsers.map((user) => (
-                      <TouchableOpacity
-                        key={user.userId}
-                        style={styles.chattableUserCard}
-                        onPress={() => handleStartChat(user.userId, user.name)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.chattableUserAvatar}>
-                          {user.photo ? (
-                            <Image source={{ uri: user.photo }} style={styles.chattableUserAvatarImage} />
-                          ) : (
-                            <Ionicons name="person-circle" size={32} color="#fff" />
-                          )}
-                        </View>
-                        <Text style={styles.chattableUserName}>{user.name}</Text>
-                        <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.viewBookingsButton}
-                    onPress={() => router.push('/agent-players')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.viewBookingsButtonText}>{i18n.t('viewMyPlayers') || 'View My Players'}</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  style={styles.viewBookingsButton}
+                  onPress={() => router.push('/agent-players')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.viewBookingsButtonText}>{i18n.t('viewMyPlayers') || 'View My Players'}</Text>
+                </TouchableOpacity>
               </View>
             }
         />
@@ -236,8 +203,12 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 24,
     paddingBottom: 20,
+  },
+  headerTopRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 20,
   },
   menuButton: {
     width: 44,
@@ -249,10 +220,22 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   headerContent: {
-    flex: 1,
     alignItems: 'center',
-    marginLeft: -44, // Negative margin to center title while keeping menu button on left
-    paddingHorizontal: 44, // Add padding to ensure title doesn't overlap with menu button
+  },
+  textAdminBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  textAdminText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   headerTitle: {
     fontSize: 28,

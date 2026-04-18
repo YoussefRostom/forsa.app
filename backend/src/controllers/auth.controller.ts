@@ -26,6 +26,11 @@ export async function signup(req: Request, res: Response, next: NextFunction): P
     const validatedData = signupSchema.parse(req.body);
     const { email, phone, password, role } = validatedData;
 
+    if (role === UserRole.ADMIN) {
+      sendError(res, 'FORBIDDEN', 'Admin accounts cannot be created through public signup', null, 403);
+      return;
+    }
+
     // Check if user already exists
     let userQuery = db.collection('users');
     if (email) {
@@ -212,27 +217,47 @@ export async function signin(req: Request, res: Response, next: NextFunction): P
 
 export async function refreshToken(req: Request, res: Response, _next: NextFunction): Promise<void> {
   try {
-    const { refreshToken } = req.body;
+    const refreshTokenValue = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '';
 
-    if (!refreshToken) {
+    if (!refreshTokenValue) {
       sendError(res, 'VALIDATION_ERROR', 'Refresh token is required', null, 400);
       return;
     }
 
     const { verifyRefreshToken } = await import('../utils/jwt.util');
-    const decoded = verifyRefreshToken(refreshToken);
+    const decoded = verifyRefreshToken(refreshTokenValue);
+
+    const userDoc = await db.collection('users').doc(decoded.userId).get();
+    if (!userDoc.exists) {
+      sendError(res, 'UNAUTHORIZED', 'Invalid refresh token', null, 401);
+      return;
+    }
+
+    const userData = userDoc.data();
+    if (!userData) {
+      sendError(res, 'UNAUTHORIZED', 'Invalid refresh token', null, 401);
+      return;
+    }
+
+    if (userData.status === AccountStatus.SUSPENDED || userData.status === AccountStatus.BANNED) {
+      sendError(res, 'FORBIDDEN', 'Account is suspended or banned', null, 403);
+      return;
+    }
+
+    const role = userData.role as UserRole;
+    const email = userData.email as string | undefined;
 
     // Generate new tokens
     const token = generateToken({
       userId: decoded.userId,
-      email: decoded.email,
-      role: decoded.role,
+      email,
+      role,
     });
 
     const newRefreshToken = generateRefreshToken({
       userId: decoded.userId,
-      email: decoded.email,
-      role: decoded.role,
+      email,
+      role,
     });
 
     sendSuccess(
@@ -243,7 +268,7 @@ export async function refreshToken(req: Request, res: Response, _next: NextFunct
       },
       'Token refreshed successfully'
     );
-  } catch (error: any) {
+  } catch {
     sendError(res, 'UNAUTHORIZED', 'Invalid refresh token', null, 401);
   }
 }

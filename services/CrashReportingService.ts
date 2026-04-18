@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import React from 'react';
+import { Platform } from 'react-native';
 
 const sentryDsn =
   (process.env.EXPO_PUBLIC_SENTRY_DSN || Constants.expoConfig?.extra?.sentryDsn || '').trim();
@@ -9,6 +10,13 @@ let sentryModuleCache: any | null | undefined;
 
 function getSentryModule(): any | null {
   if (sentryModuleCache !== undefined) {
+    return sentryModuleCache;
+  }
+
+  // Sentry RN package isn't reliably resolvable in web exports for this project.
+  // Avoid hard runtime warnings and continue with graceful no-op crash reporting on web.
+  if (Platform.OS === 'web') {
+    sentryModuleCache = null;
     return sentryModuleCache;
   }
 

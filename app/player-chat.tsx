@@ -1,17 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
+import { FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
-import CommonStyles from '../styles/CommonStyles';
 import { 
   getOrCreateConversation, 
   sendMessage, 
   subscribeToMessages, 
-  markMessagesAsRead,
+  warmCurrentUserChatProfile,
   Message 
   
 } from '../services/MessagingService';
@@ -109,6 +108,12 @@ export default function PlayerChatScreen() {
   const [conversationIdState, setConversationIdState] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
+  const scrollToConversationEnd = () => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
   // Initialize conversation and subscribe to messages
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -116,10 +121,12 @@ export default function PlayerChatScreen() {
     const initializeChat = async () => {
       try {
         setLoading(true);
+        warmCurrentUserChatProfile();
         let convId = conversationId;
 
-        // If no conversationId but we have otherUserId, create/get conversation
-        if (!convId && otherUserId) {
+        // Always prefer the canonical conversation for the selected recipient.
+        // This recovers old/stale thread IDs that can exist for some legacy users.
+        if (otherUserId) {
           convId = await getOrCreateConversation(otherUserId);
           setConversationIdState(convId);
         } else if (convId) {
@@ -133,22 +140,14 @@ export default function PlayerChatScreen() {
           return;
         }
 
-        // Mark messages as read when opening chat
-        if (convId) {
-          await markMessagesAsRead(convId);
-        }
-
         // Subscribe to real-time messages
         if (convId) {
           unsubscribe = subscribeToMessages(convId, (msgs) => {
             setMessages(msgs);
             setLoading(false);
-            // Scroll to end when new messages arrive
-            setTimeout(() => {
-              if (flatListRef.current && msgs.length > 0) {
-                flatListRef.current.scrollToEnd({ animated: true });
-              }
-            }, 100);
+            if (msgs.length > 0) {
+              scrollToConversationEnd();
+            }
           });
         }
       } catch (error: any) {
@@ -184,17 +183,28 @@ export default function PlayerChatScreen() {
   // Scroll to end when messages change
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      scrollToConversationEnd();
     }
   }, [messages]);
 
   const handleSendMessage = async () => {
     if (sending || !input.trim() || !conversationIdState) return;
     const message = input.trim();
+    const optimisticMessage: Message = {
+      id: `local-${Date.now()}`,
+      conversationId: conversationIdState,
+      senderId: auth.currentUser?.uid || '',
+      content: message,
+      senderName: auth.currentUser?.displayName || auth.currentUser?.email || 'You',
+      senderPhoto: auth.currentUser?.photoURL || undefined,
+      isRead: false,
+      createdAt: { toDate: () => new Date() },
+    };
+
     setSending(true);
     setInput('');
+    setMessages((prev) => [...prev, optimisticMessage]);
+    scrollToConversationEnd();
     Keyboard.dismiss();
 
     // Legacy paywall check for agents
@@ -215,15 +225,29 @@ export default function PlayerChatScreen() {
       }
     }
 
-    try {
-      await sendMessage(conversationIdState, message);
-      await markMessagesAsRead(conversationIdState);
-    } catch (error: any) {
-      console.error('Error sending message:', error);
-      // Optionally show error to user
-    } finally {
-      setSending(false);
-    }
+    setSending(false);
+
+    void (async () => {
+      try {
+        await sendMessage(conversationIdState, message);
+      } catch (error: any) {
+        if (otherUserId) {
+          try {
+            const fallbackConversationId = await getOrCreateConversation(otherUserId);
+            if (fallbackConversationId !== conversationIdState) {
+              setConversationIdState(fallbackConversationId);
+            }
+            await sendMessage(fallbackConversationId, message);
+            return;
+          } catch (retryError) {
+            console.error('Error retrying player message on canonical conversation:', retryError);
+          }
+        }
+
+        setMessages((prev) => prev.filter((item) => item.id !== optimisticMessage.id));
+        console.error('Error sending message:', error);
+      }
+    })();
   };
 
   return (

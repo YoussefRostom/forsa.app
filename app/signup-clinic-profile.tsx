@@ -9,7 +9,16 @@ import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { writeEmailIndex } from '../lib/emailIndex';
 import { writePhoneIndex } from '../lib/phoneIndex';
-import { normalizePhoneForAuth } from '../lib/validations';
+import {
+  normalizePhoneForAuth,
+  validateAddress,
+  validateCity,
+  validateEmail,
+  validatePassword,
+  validatePhone,
+  validateRequired,
+  normalizePhoneForTwilio,
+} from '../lib/validations';
 import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -28,19 +37,8 @@ import {
   View
 } from 'react-native';
 import { uploadMedia } from '../services/MediaService';
-// import { db } from '../lib/firebase'; // Already imported above
-import {
-  validateAddress,
-  validateCity,
-  validateEmail,
-  validatePassword,
-  validatePhone,
-  validateRequired,
-  normalizePhoneForTwilio
-} from '../lib/validations';
 import i18n from '../locales/i18n';
 // import OtpModal from '../components/OtpModal'; // Removed
-import { getBackendUrl } from '../lib/config';
 
 function isValidTimeFormat(time: string): boolean {
   return /^([01]\d|2[0-3]):([0-5]\d)$/.test(time); // Matches HH:mm from 00:00 to 23:59
@@ -76,7 +74,7 @@ type ClinicBranchLocation = {
   longitude?: number | null;
 };
 
-const districtsByCity: Record<string, Array<{ key: string; label: string }>> = {
+const districtsByCity: Record<string, { key: string; label: string }[]> = {
   cairo: [
     { key: 'Maadi', label: 'Maadi' },
     { key: 'Nasr City', label: 'Nasr City' },
@@ -156,8 +154,6 @@ const SignupClinic = () => {
   const [workingHours, setWorkingHours] = useState<Record<string, { from: string; to: string; doctors: string; off?: boolean }>>({});
   // Doctors list: array of { name: string, major?: string }
   const [doctors, setDoctors] = useState<{ name: string; major?: string; description?: string; photoUri?: string }[]>([]);
-  const [timePicker, setTimePicker] = useState<{ visible: boolean, mode: 'from' | 'to', day: string | null }>({ visible: false, mode: 'from', day: null });
-  const [tempTime, setTempTime] = useState(new Date());
 
   const [description, setDescription] = useState('');
   const [socialUrl, setSocialUrl] = useState('');
@@ -166,7 +162,6 @@ const SignupClinic = () => {
   const [longitudeInput, setLongitudeInput] = useState('');
   const [locationAutofillLoading, setLocationAutofillLoading] = useState(false);
   const [extraLocations, setExtraLocations] = useState<ClinicBranchLocation[]>([]);
-  const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>);
   const availableDistricts = city ? districtsByCity[city] || [] : [];
   const isDistrictEnabled = Boolean(city && availableDistricts.length > 0);
 
@@ -176,34 +171,6 @@ const SignupClinic = () => {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9\u0600-\u06FF]+/gi, '');
-
-  const normalizeCityKey = (value: string) => normalizeLookupValue(value);
-  const findCityKeyFromValue = (value?: string) => {
-    const normalized = normalizeCityKey(value || '');
-    if (!normalized) return '';
-
-    if (
-      normalized.includes('giza') ||
-      normalized.includes('newcairo') ||
-      normalized.includes('الجيزة') ||
-      normalized.includes('القاهرةالجديدة')
-    ) {
-      return 'cairo';
-    }
-
-    const matched = cityOptions.find((option) => {
-      const keyNormalized = normalizeCityKey(option.key);
-      const labelNormalized = normalizeCityKey(String(option.label));
-      return (
-        normalized === keyNormalized ||
-        normalized === labelNormalized ||
-        normalized.includes(labelNormalized) ||
-        labelNormalized.includes(normalized)
-      );
-    });
-
-    return matched?.key || '';
-  };
 
   const districtAliasesByCity: Record<string, Record<string, string>> = {
     cairo: {
@@ -293,7 +260,7 @@ const SignupClinic = () => {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const parseCoordinateValue = (value: string): number | null => {
     const normalized = value.trim().replace(/,/g, '.');
@@ -506,7 +473,7 @@ const SignupClinic = () => {
       return () => {
         active = false;
       };
-    }, [city, draftReady])
+    }, [draftReady])
   );
 
   React.useEffect(() => {
@@ -515,6 +482,8 @@ const SignupClinic = () => {
     if (normalizedDistrict !== district) {
       setDistrict(normalizedDistrict);
     }
+  // normalizeDistrictValue is intentionally derived inline from current city options.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [city, district]);
 
   const validate = () => {
@@ -1079,7 +1048,8 @@ const SignupClinic = () => {
 
           <ScrollView
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
             {formError && (
@@ -3080,7 +3050,7 @@ const daysOfWeek = [
   'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'
 ];
 
-const WorkingHoursInput: React.FC<WorkingHoursInputProps> = ({ value, onChange }) => {
+export const WorkingHoursInput: React.FC<WorkingHoursInputProps> = ({ value, onChange }) => {
   const [dropdown, setDropdown] = React.useState<{ day: string; mode: 'from' | 'to' } | null>(null);
   const timeOptions: string[] = [];
   for (let h = 0; h < 24; h++) {

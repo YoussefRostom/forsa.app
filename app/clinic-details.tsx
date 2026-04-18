@@ -2,13 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Modal } from 'react-native';
+import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { notifyProviderAndAdmins, createNotification } from '../services/NotificationService';
-import { upsertBookingTransaction } from '../services/MonetizationService';
+import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
+import { doc, getDoc } from 'firebase/firestore';
+import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
 
 export default function ClinicDetailsScreen() {
   const params = useLocalSearchParams();
@@ -18,6 +18,7 @@ export default function ClinicDetailsScreen() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [selectedServiceIndex, setSelectedServiceIndex] = useState(0);
   const [selectedDoctorIndex, setSelectedDoctorIndex] = useState(0);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [bookingComments, setBookingComments] = useState('');
   const [preferredTime, setPreferredTime] = useState<Date | null>(null);
   const [selectedShift, setSelectedShift] = useState<'Day' | 'Night' | null>(null);
@@ -48,7 +49,7 @@ export default function ClinicDetailsScreen() {
       try {
         const parsed = JSON.parse(params.clinic as string);
         clinicId = parsed.id;
-      } catch (e) { }
+      } catch { }
     }
 
     if (clinicId) {
@@ -56,7 +57,15 @@ export default function ClinicDetailsScreen() {
     } else {
       setLoading(false);
     }
-  }, [params.id, params.clinic]);
+  }, [fadeAnim, params.id, params.clinic]);
+
+  const branches = normalizeBookingBranches(clinic?.locations);
+  const selectedBranch = branches.find((branch) => branch.id === selectedBranchId) || null;
+
+  useEffect(() => {
+    const defaultBranchId = branches[0]?.id || '';
+    setSelectedBranchId((current) => (branches.some((branch) => branch.id === current) ? current : defaultBranchId));
+  }, [clinic]);
 
   const fetchClinicDetails = async (id: string) => {
     try {
@@ -289,6 +298,11 @@ export default function ClinicDetailsScreen() {
       return;
     }
 
+    if (branches.length > 0 && !selectedBranch) {
+      Alert.alert(i18n.t('error') || 'Error', i18n.t('selectBranch') || 'Please select a branch');
+      return;
+    }
+
     const selectedDoctor =
       doctor ?? (clinic.doctors && clinic.doctors.length > 0 ? clinic.doctors[selectedDoctorIndex] : null);
     const doctorName = selectedDoctor || (i18n.t('noSpecificDoctor') || 'No specific doctor');
@@ -307,7 +321,7 @@ export default function ClinicDetailsScreen() {
           const userData = userDoc.data();
           playerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || playerName;
         }
-      } catch (err) { }
+      } catch { }
 
       const bookingData = {
         playerId: user.uid,
@@ -318,12 +332,13 @@ export default function ClinicDetailsScreen() {
         providerName: clinic.name,
         type: 'clinic',
         status: 'pending',
-        date: preferredTime ? preferredTime.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        date: preferredTime ? getLocalDateInput(preferredTime) : getLocalDateInput(),
         time: preferredTime ? preferredTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
         preferredTime: preferredTime ? preferredTime.toISOString() : null,
         createdAt: new Date().toISOString(),
         name: clinic.name,
-        city: clinic.city,
+        city: selectedBranch?.city || clinic.city,
+        ...buildBookingBranchPayload(selectedBranch),
         doctor: doctorName,
         service: serviceName,
         price: servicePrice,
@@ -331,28 +346,7 @@ export default function ClinicDetailsScreen() {
         comments: bookingComments.trim() || null,
       };
 
-      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
-      await upsertBookingTransaction(bookingRef.id, bookingData, user.uid, 'Clinic booking created');
-      const providerId = clinic.id;
-      try {
-        await notifyProviderAndAdmins(
-          providerId,
-          i18n.t('newBookingRequest') || 'New booking request',
-          `${playerName} ${i18n.t('requestedBooking') || 'requested a booking'}: ${serviceName}`,
-          'booking',
-          { bookingId: bookingRef.id },
-          user.uid
-        );
-        await createNotification({
-          userId: user.uid,
-          title: i18n.t('bookingRequestSent') || 'Booking request sent',
-          body: `${clinic.name} – ${doctorName}, ${serviceName}`,
-          type: 'booking',
-          data: { bookingId: bookingRef.id },
-        });
-      } catch (e) {
-        console.warn('Notification create failed:', e);
-      }
+      await createBookingWithTransaction(bookingData, user.uid, 'Clinic booking created');
 
       Alert.alert(
         i18n.t('success') || 'Success',
@@ -361,7 +355,8 @@ export default function ClinicDetailsScreen() {
       );
     } catch (error) {
       console.error('Error creating booking:', error);
-      Alert.alert(i18n.t('error') || 'Error', i18n.t('bookingFailed') || 'Failed to create booking');
+      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
+      Alert.alert(i18n.t('error') || 'Error', message);
     } finally {
       setBookingLoading(false);
     }
@@ -606,12 +601,35 @@ export default function ClinicDetailsScreen() {
                 <Text style={styles.bookingHint}>{i18n.t('noDoctorsListed') || 'No doctors listed'}</Text>
               )}
 
+              {branches.length > 0 && (
+                <>
+                  <Text style={styles.bookingLabel}>{i18n.t('selectBranch') || 'Select branch'}</Text>
+                  <View style={styles.branchOptions}>
+                    {branches.map((branch) => {
+                      const addressLine = getBranchAddressLine(branch);
+                      const isSelected = selectedBranchId === branch.id;
+                      return (
+                        <TouchableOpacity
+                          key={branch.id}
+                          style={[styles.branchOption, isSelected && styles.branchOptionSelected]}
+                          onPress={() => setSelectedBranchId(branch.id)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.branchOptionTitle, isSelected && styles.branchOptionTitleSelected]}>{branch.name}</Text>
+                          {!!addressLine && <Text style={[styles.branchOptionSubtitle, isSelected && styles.branchOptionSubtitleSelected]}>{addressLine}</Text>}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
+
               <Text style={styles.bookingLabel}>{i18n.t('preferredDateTime') || 'Preferred Date & Time'}</Text>
               <TouchableOpacity
                 style={styles.timePickerContainer}
                 onPress={() => setShowTimePicker(true)}
               >
-                <Ionicons name="calendar-outline" size={20} color="#666" style={styles.timeIcon} />
+                <Ionicons name="calendar-outline" size={20} color="#0f766e" style={styles.timeIcon} />
                 <Text style={[styles.timeText, !preferredTime && styles.timePlaceholder]}>
                   {preferredTime ? preferredTime.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (i18n.t('selectDateAndTime') || 'Select preferred date & time')}
                 </Text>
@@ -624,6 +642,8 @@ export default function ClinicDetailsScreen() {
                 onConfirm={handleConfirm}
                 onCancel={hideDatePicker}
                 is24Hour={false}
+                isDarkModeEnabled={false}
+                buttonTextColorIOS="#0f766e"
                 textColor="#000"
               />
 
@@ -659,6 +679,7 @@ export default function ClinicDetailsScreen() {
               <View style={styles.bookingSummaryCard}>
                 <Text style={styles.bookingSummaryTitle}>{i18n.t('reviewBooking') || 'Review Before Sending'}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('clinicNameLabel') || 'Clinic'}: {clinic.name}</Text>
+                {selectedBranch ? <Text style={styles.bookingSummaryText}>{i18n.t('branch') || 'Branch'}: {getBranchSummary(selectedBranch)}</Text> : null}
                 <Text style={styles.bookingSummaryText}>{i18n.t('service') || 'Service'}: {reviewService?.name || (i18n.t('notSelectedYet') || 'Not selected yet')}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('doctor') || 'Doctor'}: {reviewDoctor}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('preferredDateTime') || 'Preferred Date & Time'}: {preferredTime ? preferredTime.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (i18n.t('notSelectedYet') || 'Not selected yet')}</Text>
@@ -1029,6 +1050,38 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 4,
   },
+  branchOptions: {
+    marginBottom: 12,
+    gap: 8,
+  },
+  branchOption: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: '#fafafa',
+  },
+  branchOptionSelected: {
+    borderColor: '#000',
+    backgroundColor: '#f3f4f6',
+  },
+  branchOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  branchOptionTitleSelected: {
+    color: '#000',
+  },
+  branchOptionSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
+  branchOptionSubtitleSelected: {
+    color: '#374151',
+  },
   serviceOptions: {
     marginBottom: 12,
   },
@@ -1095,9 +1148,9 @@ const styles = StyleSheet.create({
   timePickerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#ecfeff',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#99f6e4',
     borderRadius: 12,
     padding: 14,
     marginBottom: 12,
@@ -1107,11 +1160,11 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontSize: 16,
-    color: '#000',
+    color: '#115e59',
     flex: 1,
   },
   timePlaceholder: {
-    color: '#999',
+    color: '#0f766e',
   },
   iosDatePickerModal: {
     position: 'absolute',

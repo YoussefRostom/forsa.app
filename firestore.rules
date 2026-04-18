@@ -23,6 +23,15 @@ service cloud.firestore {
         )
       );
     }
+    
+    function isUserAdminByUid(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && (
+          get(/databases/$(database)/documents/users/$(uid)).data.role == 'admin' ||
+          get(/databases/$(database)/documents/users/$(uid)).data.role == 'Admin' ||
+          get(/databases/$(database)/documents/users/$(uid)).data.role == 'ADMIN'
+        );
+    }
 
     function userRole() {
       return isAuthed()
@@ -30,10 +39,45 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    function hasRole(role) {
+    function hasNormalizedRole(expectedRole) {
       return isAuthed()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+        && (
+          (expectedRole == 'admin' && (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Admin' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'
+          )) ||
+          (expectedRole == 'academy' && (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'academy' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Academy' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ACADEMY'
+          )) ||
+          (expectedRole == 'clinic' && (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'clinic' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Clinic' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'CLINIC'
+          )) ||
+          (expectedRole == 'player' && (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'player' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Player' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'PLAYER'
+          )) ||
+          (expectedRole == 'parent' && (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Parent' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'PARENT'
+          )) ||
+          (expectedRole == 'agent' && (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'agent' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Agent' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'AGENT'
+          ))
+        );
+    }
+
+    function hasRole(role) {
+      return hasNormalizedRole(role);
     }
 
     function isConversationParticipant(conversationId) {
@@ -105,6 +149,128 @@ service cloud.firestore {
         && (!data.keys().hasAny(['name']) || data['name'] != null)
         && (!data.keys().hasAny(['service']) || data['service'] != null)
         && (!data.keys().hasAny(['doctor']) || data['doctor'] != null);
+    }
+
+    function bookingAfter(bookingId) {
+      return getAfter(/databases/$(database)/documents/bookings/$(bookingId)).data;
+    }
+
+    function notificationDataField(field) {
+      return request.resource.data.keys().hasAny(['data']) && request.resource.data.data is map && request.resource.data.data.keys().hasAny([field]);
+    }
+
+    function notificationBookingRecipientAllowed() {
+      return notificationDataField('bookingId')
+        && request.resource.data.data.bookingId is string
+        && exists(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId))
+        && (
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data.providerId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data.playerId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data.parentId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data.userId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data.academyId == request.resource.data.userId ||
+          isUserAdminByUid(request.resource.data.userId)
+        )
+        && (
+          isBookingCustomer(get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data) ||
+          isBookingProvider(get(/databases/$(database)/documents/bookings/$(request.resource.data.data.bookingId)).data) ||
+          isAdmin()
+        );
+    }
+
+    function notificationCheckInRecipientAllowed() {
+      return notificationDataField('checkInId')
+        && request.resource.data.data.checkInId is string
+        && exists(/databases/$(database)/documents/checkins/$(request.resource.data.data.checkInId))
+        && (
+          get(/databases/$(database)/documents/checkins/$(request.resource.data.data.checkInId)).data.userId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/checkins/$(request.resource.data.data.checkInId)).data.playerId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/checkins/$(request.resource.data.data.checkInId)).data.parentId == request.resource.data.userId ||
+          get(/databases/$(database)/documents/checkins/$(request.resource.data.data.checkInId)).data.locationId == request.resource.data.userId ||
+          isUserAdminByUid(request.resource.data.userId)
+        );
+    }
+
+    function notificationReportRecipientAllowed() {
+      return notificationDataField('reportId')
+        && request.resource.data.data.reportId is string
+        && exists(/databases/$(database)/documents/reports/$(request.resource.data.data.reportId))
+        && (
+          get(/databases/$(database)/documents/reports/$(request.resource.data.data.reportId)).data.reporterId == request.resource.data.userId ||
+          isUserAdminByUid(request.resource.data.userId)
+        );
+    }
+
+    function notificationConversationRecipientAllowed() {
+      return notificationDataField('conversationId')
+        && request.resource.data.data.conversationId is string
+        && exists(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId))
+        && (
+          get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.participant1Id == request.resource.data.userId ||
+          get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.participant2Id == request.resource.data.userId ||
+          (
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.keys().hasAny(['participants']) &&
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.participants is list &&
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.participants.hasAny([request.resource.data.userId])
+          ) ||
+          (
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.keys().hasAny(['participantIds']) &&
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.participantIds is list &&
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.participantIds.hasAny([request.resource.data.userId])
+          ) ||
+          (
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.keys().hasAny(['members']) &&
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.members is list &&
+            get(/databases/$(database)/documents/conversations/$(request.resource.data.data.conversationId)).data.members.hasAny([request.resource.data.userId])
+          ) ||
+          isUserAdminByUid(request.resource.data.userId)
+        )
+        && (
+          isConversationParticipant(request.resource.data.data.conversationId) ||
+          isAdmin()
+        );
+    }
+
+    function canCreateNotification() {
+      return isAdmin() || (
+        isAuthed()
+        && request.resource.data.userId is string
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.read == false
+        && request.resource.data.keys().hasAll(['userId', 'title', 'body', 'type', 'read', 'createdAt', 'createdBy'])
+        && request.resource.data.type in ['booking', 'checkin', 'report', 'info', 'system']
+        && (
+          request.resource.data.userId == request.auth.uid ||
+          notificationBookingRecipientAllowed() ||
+          notificationCheckInRecipientAllowed() ||
+          notificationReportRecipientAllowed() ||
+          notificationConversationRecipientAllowed()
+        )
+      );
+    }
+
+    function isBookingLinkedCheckIn(data) {
+      return data.keys().hasAny(['meta'])
+        && data.meta is map
+        && data.meta.keys().hasAny(['linkedBookingId'])
+        && data.meta.linkedBookingId is string
+        && data.meta.linkedBookingId != null
+        && data.meta.linkedBookingId != '';
+    }
+
+    function canCreateOwnBookingTransaction(transactionId) {
+      return isAuthed()
+        && request.resource.data.type == 'booking_commission'
+        && request.resource.data.revenueSource == 'booking'
+        && request.resource.data.bookingId is string
+        && transactionId == 'booking_' + request.resource.data.bookingId
+        && request.resource.data.customerId == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid
+        && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+        && isBookingCustomer(bookingAfter(request.resource.data.bookingId))
+        && bookingAfter(request.resource.data.bookingId).providerId == request.resource.data.providerId
+        && bookingAfter(request.resource.data.bookingId).type == request.resource.data.providerRole
+        && bookingAfter(request.resource.data.bookingId).status == request.resource.data.bookingStatus;
     }
 
     function canWriteOwnUserDoc(uid) {
@@ -365,15 +531,31 @@ service cloud.firestore {
 
       // No blanket list access; queries must resolve only to conversations the caller participates in.
 
-      allow create: if isAuthed() && (
-        request.resource.data.participant1Id == request.auth.uid ||
-        request.resource.data.participant2Id == request.auth.uid ||
-        isAdmin()
-      );
+      // New conversations are restricted to admin-involved threads:
+      // - any user can create a conversation with admin
+      // - admin can create conversations with anyone
+      allow create: if isAuthed()
+        && request.resource.data.participant1Id is string
+        && request.resource.data.participant2Id is string
+        && request.resource.data.participant1Id != request.resource.data.participant2Id
+        && (
+          request.resource.data.participant1Id == request.auth.uid ||
+          request.resource.data.participant2Id == request.auth.uid ||
+          isAdmin()
+        )
+        && (
+          isAdmin() ||
+          isUserAdminByUid(request.resource.data.participant1Id) ||
+          isUserAdminByUid(request.resource.data.participant2Id)
+        );
 
       allow update, delete: if isAuthed() && (
-        resource.data.participant1Id == request.auth.uid ||
-        resource.data.participant2Id == request.auth.uid ||
+        (
+          (resource.data.participant1Id == request.auth.uid ||
+            resource.data.participant2Id == request.auth.uid) &&
+          request.resource.data.participant1Id == resource.data.participant1Id &&
+          request.resource.data.participant2Id == resource.data.participant2Id
+        ) ||
         isAdmin()
       );
 
@@ -411,15 +593,22 @@ service cloud.firestore {
         resource.data.createdBy == request.auth.uid
       );
 
-      // Academy/clinic scanners need list access to query recent check-ins for cooldown logic
-      allow list: if isAuthed() && (isAdmin() || hasRole('academy') || hasRole('clinic'));
+      // Queries are limited to check-ins the caller owns, created, or administered.
+      allow list: if isAuthed() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.playerId == request.auth.uid ||
+        resource.data.createdBy == request.auth.uid ||
+        resource.data.locationId == request.auth.uid
+      );
 
       // Create: only academy/clinic, may be written as pending or completed depending on the scan flow
       allow create: if isAuthed()
         && (hasRole('academy') || hasRole('clinic'))
         && request.resource.data.createdBy == request.auth.uid
         && ['pending', 'completed'].hasAny([request.resource.data.status])
-        && request.resource.data.keys().hasAll(['userId', 'createdBy', 'status', 'createdAt']);
+        && request.resource.data.keys().hasAll(['userId', 'createdBy', 'status', 'createdAt'])
+        && !isBookingLinkedCheckIn(request.resource.data);
 
       // Update: ONLY admin can change status or other fields
       allow update: if isAdmin();
@@ -455,12 +644,7 @@ service cloud.firestore {
         isAdmin()
       );
 
-      // No blanket list access; notification queries must resolve only to the signed-in user or admin.
-
-      // App currently creates notifications client-side (provider/admin notifications too).
-      // Minimal guard: require `createdBy == auth.uid`.
-      allow create: if isAuthed()
-        && request.resource.data.createdBy == request.auth.uid;
+      allow create: if canCreateNotification();
 
       // Recipient can mark as read; admin can do anything.
       allow update: if isAdmin() || (
@@ -495,7 +679,7 @@ service cloud.firestore {
     match /checkInCodes/{codeId} {
       // Read: Any authenticated user can read (needed for QR scanning/lookup)
       allow get, read: if isAuthed();
-      allow list: if isAuthed();
+      allow list: if isAdmin();
 
       // Create: User can only reserve a code for themselves (uid must match auth.uid)
       // This ensures users can't create codes for other users
@@ -523,13 +707,21 @@ service cloud.firestore {
         && resource.data.providerId == request.auth.uid;
 
       // list needed for abuse-key duplicate check (where abuseKey == ...)
-      allow list: if isAuthed() && (hasRole('academy') || hasRole('clinic'));
+      allow list: if isAdmin() || (
+        isAuthed() &&
+        (hasRole('academy') || hasRole('clinic')) &&
+        resource.data.providerId == request.auth.uid
+      );
 
       allow create: if isAuthed() && (hasRole('academy') || hasRole('clinic'))
-        && request.resource.data.providerId == request.auth.uid;
+        && request.resource.data.providerId == request.auth.uid
+        && request.resource.data.revenueSource == 'checkin'
+        && !request.resource.data.keys().hasAny(['bookingId']);
 
       allow update: if isAuthed() && (hasRole('academy') || hasRole('clinic'))
-        && resource.data.providerId == request.auth.uid;
+        && resource.data.providerId == request.auth.uid
+        && resource.data.revenueSource == 'checkin'
+        && !resource.data.keys().hasAny(['bookingId']);
     }
 
     match /payouts/{payoutId} {
@@ -542,7 +734,11 @@ service cloud.firestore {
       allow list, create, update: if isAdmin();
 
       // Academy/clinic can list and upsert their own payout summary (refreshed after scan-triggered monetization)
-      allow list: if isAuthed() && (hasRole('academy') || hasRole('clinic'));
+      allow list: if isAdmin() || (
+        isAuthed() &&
+        (hasRole('academy') || hasRole('clinic')) &&
+        resource.data.providerId == request.auth.uid
+      );
 
       allow create: if isAuthed() && (hasRole('academy') || hasRole('clinic'))
         && request.resource.data.providerId == request.auth.uid;

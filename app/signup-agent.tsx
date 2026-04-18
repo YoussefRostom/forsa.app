@@ -55,7 +55,8 @@ const SignupAgent = () => {
       </View>
       <ScrollView 
         contentContainerStyle={styles.container} 
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
       >
         {/* Profile Photo Preview */}

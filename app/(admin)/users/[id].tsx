@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, TextInput } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../../lib/firebase';
@@ -30,8 +30,6 @@ export default function UserDetails() {
     const [adminNotes, setAdminNotes] = useState<any[]>([]);
     const [newNote, setNewNote] = useState('');
     const [savingNote, setSavingNote] = useState(false);
-    const router = useRouter();
-
     useEffect(() => {
         const fetchUser = async () => {
             if (!id) return;

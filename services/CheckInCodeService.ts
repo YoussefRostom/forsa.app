@@ -1,5 +1,5 @@
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { getCurrentUserRole } from './UserRoleService';
 
 /**
@@ -13,58 +13,6 @@ function generateCheckInCode(): string {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
-}
-
-/**
- * Reserve a check-in code in Firestore to ensure uniqueness
- * Returns true if code was successfully reserved, false if already exists
- */
-async function reserveCheckInCode(code: string, uid: string): Promise<boolean> {
-  try {
-    const codeRef = doc(db, 'checkInCodes', code);
-    
-    const result = await runTransaction(db, async (transaction) => {
-      const codeDoc = await transaction.get(codeRef);
-      
-      if (codeDoc.exists()) {
-        // Code already reserved by someone else
-        return false;
-      }
-      
-      // Reserve the code
-      transaction.set(codeRef, {
-        uid: uid,
-        createdAt: serverTimestamp(),
-      });
-      
-      return true;
-    });
-    
-    return result;
-  } catch (error: any) {
-    console.error('Error reserving check-in code:', error);
-    return false;
-  }
-}
-
-/**
- * Generate and reserve a unique check-in code
- * Retries if code collision occurs
- */
-async function generateAndReserveCode(uid: string): Promise<string | null> {
-  const maxRetries = 10;
-  
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const code = generateCheckInCode();
-    const reserved = await reserveCheckInCode(code, uid);
-    
-    if (reserved) {
-      return code;
-    }
-  }
-  
-  console.error('Failed to generate unique check-in code after max retries');
-  return null;
 }
 
 /**
@@ -107,39 +55,59 @@ export async function ensureCheckInCodeForCurrentUser(): Promise<string | null> 
     }
 
     const userRef = doc(db, 'users', user.uid);
-    
-    // Use transaction to ensure atomicity
-    const result = await runTransaction(db, async (transaction) => {
-      const userDoc = await transaction.get(userRef);
-      
-      if (!userDoc.exists()) {
-        throw new Error('User document not found');
-      }
-      
-      const userData = userDoc.data();
-      
-      // If check-in code already exists, return it
-      if (userData.checkInCode) {
-        return userData.checkInCode;
-      }
-      
-      // Generate and reserve a new code
-      const newCode = await generateAndReserveCode(user.uid);
-      
-      if (!newCode) {
-        throw new Error('Failed to generate unique check-in code');
-      }
-      
-      // Update user document with new code
-      transaction.update(userRef, {
-        checkInCode: newCode,
-        checkInCodeCreatedAt: serverTimestamp(),
+    const maxRetries = 10;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const result = await runTransaction(db, async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+
+        if (!userDoc.exists()) {
+          throw new Error('User document not found');
+        }
+
+        const userData = userDoc.data();
+        const existingCode = typeof userData.checkInCode === 'string' ? userData.checkInCode.trim() : '';
+        if (existingCode) {
+          const existingCodeRef = doc(db, 'checkInCodes', existingCode);
+          const existingCodeDoc = await transaction.get(existingCodeRef);
+
+          if (!existingCodeDoc.exists()) {
+            transaction.set(existingCodeRef, {
+              uid: user.uid,
+              createdAt: serverTimestamp(),
+            });
+          }
+
+          return { code: existingCode, collision: false };
+        }
+
+        const nextCode = generateCheckInCode();
+        const codeRef = doc(db, 'checkInCodes', nextCode);
+        const codeDoc = await transaction.get(codeRef);
+
+        if (codeDoc.exists()) {
+          return { code: null, collision: true };
+        }
+
+        transaction.set(codeRef, {
+          uid: user.uid,
+          createdAt: serverTimestamp(),
+        });
+
+        transaction.update(userRef, {
+          checkInCode: nextCode,
+          checkInCodeCreatedAt: serverTimestamp(),
+        });
+
+        return { code: nextCode, collision: false };
       });
-      
-      return newCode;
-    });
-    
-    return result;
+
+      if (!result.collision && result.code) {
+        return result.code;
+      }
+    }
+
+    throw new Error('Failed to generate unique check-in code after multiple attempts');
   } catch (error: any) {
     console.error('Error ensuring check-in code:', error);
     throw new Error(`Failed to ensure check-in code: ${error.message}`);

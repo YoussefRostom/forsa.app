@@ -14,6 +14,7 @@ import {
 import { getUserByCheckInCode } from './CheckInCodeService';
 import { getCurrentUserRole } from './UserRoleService';
 import { doc, getDoc } from 'firebase/firestore';
+import { createBackendFeatureUnavailableError, getBackendUrl, isBackendConfigured } from '../lib/config';
 import { notifyAdmins, createNotification } from './NotificationService';
 import { registerCheckInMonetization } from './MonetizationService';
 
@@ -35,6 +36,10 @@ export interface CheckIn {
     walkInServiceName?: string | null;
     walkInGrossAmount?: number | null;
     walkInCommissionPercentage?: number | null;
+    walkInServiceCategory?: string | null;
+    walkInAgeGroup?: string | null;
+    walkInPrivateTrainerId?: string | null;
+    walkInPrivateTrainerName?: string | null;
   };
   // Denormalized fields (optional, for admin UI speed)
   userName?: string;
@@ -57,6 +62,10 @@ export type CreateCheckInOptions = {
   linkedBookingId?: string | null;
   walkInService?: WalkInServiceDetails | null;
   walkInCustomerType?: string | null;
+  walkInServiceCategory?: string | null;
+  walkInAgeGroup?: string | null;
+  walkInPrivateTrainerId?: string | null;
+  walkInPrivateTrainerName?: string | null;
 };
 
 type BookingEligibilityResult = {
@@ -259,6 +268,89 @@ async function getLocationName(locationId: string): Promise<string | null> {
   }
 }
 
+function isTimeoutLikeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /timed out|aborted/i.test(message);
+}
+
+async function createBookingCheckInViaBackend(params: {
+  bookingId: string;
+  checkInCode: string;
+  note?: string;
+  fallbackUserName?: string | null;
+  fallbackLocationName?: string | null;
+  fallbackUserId: string;
+  fallbackUserRole: 'player' | 'parent';
+  fallbackLocationId: string;
+  fallbackLocationRole: CheckInLocationRole;
+}): Promise<CheckIn> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('Staff user must be authenticated');
+  }
+
+  const idToken = await user.getIdToken();
+  const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeoutHandle = abortController
+    ? setTimeout(() => abortController.abort(), 8000)
+    : null;
+
+  let response: Response;
+  const requestBody: { note?: string; checkInCode: string } = {
+    checkInCode: params.checkInCode,
+  };
+
+  if (typeof params.note === 'string' && params.note.trim().length > 0) {
+    requestBody.note = params.note.trim();
+  }
+
+  if (!isBackendConfigured()) {
+    throw createBackendFeatureUnavailableError('Booking check-ins');
+  }
+
+  try {
+    response = await fetch(`${getBackendUrl()}/api/bookings/${encodeURIComponent(params.bookingId)}/check-in`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify(requestBody),
+      signal: abortController?.signal,
+    });
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.message || 'Failed to complete booking check-in');
+  }
+
+  const result = payload?.data || {};
+  const backendCheckIn = result?.checkIn || {};
+
+  return {
+    id: String(backendCheckIn.id || ''),
+    userId: String(backendCheckIn.userId || params.fallbackUserId),
+    userRole: (backendCheckIn.userRole || params.fallbackUserRole) as 'player' | 'parent',
+    userCheckInCode: String(backendCheckIn.userCheckInCode || params.checkInCode),
+    locationId: String(backendCheckIn.locationId || params.fallbackLocationId),
+    locationRole: (backendCheckIn.locationRole || params.fallbackLocationRole) as CheckInLocationRole,
+    createdAt: backendCheckIn.createdAt || Timestamp.now(),
+    createdBy: String(backendCheckIn.createdBy || user.uid),
+    meta: {
+      ...(backendCheckIn.meta || {}),
+      linkedBookingId: String(backendCheckIn.meta?.linkedBookingId || params.bookingId),
+      note: backendCheckIn.meta?.note ?? params.note ?? null,
+    },
+    userName: backendCheckIn.userName || params.fallbackUserName || undefined,
+    locationName: backendCheckIn.locationName || params.fallbackLocationName || undefined,
+  };
+}
+
 async function findLinkedBookingForCheckIn(
   userId: string,
   locationId: string,
@@ -356,20 +448,6 @@ export async function createCheckInFromScan(
     if (isBookingQrScan && !linkedBooking) {
       throw new Error('Invalid, expired, or already used booking QR code.');
     }
-
-    if (linkedBooking?.id) {
-      const duplicateBookingCheckIn = await getDocs(
-        query(
-          collection(db, 'checkins'),
-          where('meta.linkedBookingId', '==', linkedBooking.id),
-          limit(1)
-        )
-      );
-      if (!duplicateBookingCheckIn.empty) {
-        throw new Error('This booking has already been checked in. Each booking can only be scanned once.');
-      }
-    }
-
     const walkInService = normalizedOptions.walkInService || null;
     if (!linkedBooking && !walkInService) {
       const serviceError: any = new Error('Walk-in service details are required when no booking exists.');
@@ -377,8 +455,24 @@ export async function createCheckInFromScan(
       throw serviceError;
     }
 
-    const userName = await getUserName(userId);
-    const locationName = await getLocationName(locationId);
+    const [userName, locationName] = await Promise.all([
+      getUserName(userId),
+      getLocationName(locationId),
+    ]);
+
+    if (linkedBooking?.id) {
+      return await createBookingCheckInViaBackend({
+        bookingId: linkedBooking.id,
+        checkInCode: code,
+        note: normalizedOptions.note,
+        fallbackUserName: userName,
+        fallbackLocationName: locationName,
+        fallbackUserId: userId,
+        fallbackUserRole: userRole as 'player' | 'parent',
+        fallbackLocationId: locationId,
+        fallbackLocationRole: staffRole as CheckInLocationRole,
+      });
+    }
 
     const checkInData = {
       userId,
@@ -397,6 +491,10 @@ export async function createCheckInFromScan(
         walkInGrossAmount: walkInService?.grossAmount ?? null,
         walkInCommissionPercentage: walkInService?.commissionPercentage ?? null,
         walkInCustomerType: normalizedOptions.walkInCustomerType || null,
+        walkInServiceCategory: normalizedOptions.walkInServiceCategory || null,
+        walkInAgeGroup: normalizedOptions.walkInAgeGroup || null,
+        walkInPrivateTrainerId: normalizedOptions.walkInPrivateTrainerId || null,
+        walkInPrivateTrainerName: normalizedOptions.walkInPrivateTrainerName || null,
       },
       userName: userName || null,
       locationName: locationName || null,
@@ -405,29 +503,33 @@ export async function createCheckInFromScan(
     const checkInsRef = collection(db, 'checkins');
     const checkInRef = await addDoc(checkInsRef, checkInData);
 
-    try {
-      await registerCheckInMonetization(checkInRef.id, { id: checkInRef.id, ...checkInData }, staffUser.uid);
-    } catch (financeError) {
-      console.warn('Check-in monetization sync failed:', financeError);
-    }
+    void (async () => {
+      try {
+        await registerCheckInMonetization(checkInRef.id, { id: checkInRef.id, ...checkInData }, staffUser.uid);
+      } catch (financeError) {
+        console.warn('Check-in monetization sync failed:', financeError);
+      }
 
-    try {
-      await notifyAdmins(
-        'New check-in',
-        locationName ? `${userName || 'User'} checked in at ${locationName}` : `${userName || 'User'} (${userRole}) checked in`,
-        'checkin',
-        { checkInId: checkInRef.id, locationId, userId }
-      );
-      await createNotification({
-        userId,
-        title: 'Check-in recorded',
-        body: locationName ? `You checked in at ${locationName}` : 'Check-in successful',
-        type: 'checkin',
-        data: { checkInId: checkInRef.id },
-      });
-    } catch (e) {
-      console.warn('Check-in notification failed:', e);
-    }
+      try {
+        await notifyAdmins(
+          'New check-in',
+          locationName ? `${userName || 'User'} checked in at ${locationName}` : `${userName || 'User'} (${userRole}) checked in`,
+          'checkin',
+          { checkInId: checkInRef.id, locationId, userId }
+        );
+        await createNotification({
+          userId,
+          title: 'Check-in recorded',
+          body: locationName ? `You checked in at ${locationName}` : 'Check-in successful',
+          type: 'checkin',
+          data: { checkInId: checkInRef.id },
+        });
+      } catch (e) {
+        if (!isTimeoutLikeError(e)) {
+          console.warn('Check-in notification failed:', e);
+        }
+      }
+    })();
 
     return {
       id: checkInRef.id,

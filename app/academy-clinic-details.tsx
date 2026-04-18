@@ -6,9 +6,8 @@ import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, Scrol
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { notifyProviderAndAdmins, createNotification } from '../services/NotificationService';
-import { upsertBookingTransaction } from '../services/MonetizationService';
+import { doc, getDoc } from 'firebase/firestore';
+import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
 
 export default function AcademyClinicDetailsScreen() {
   const params = useLocalSearchParams();
@@ -44,7 +43,7 @@ export default function AcademyClinicDetailsScreen() {
     if (params.id) {
       fetchClinicDetails(params.id as string);
     }
-  }, [params.id]);
+  }, [fadeAnim, params.id]);
 
   const fetchClinicDetails = async (id: string) => {
     try {
@@ -176,7 +175,7 @@ export default function AcademyClinicDetailsScreen() {
           const userData = userDoc.data();
           academyName = userData.academyName || userData.name || academyName;
         }
-      } catch (err) {
+      } catch {
       }
 
       const bookingData = {
@@ -186,7 +185,7 @@ export default function AcademyClinicDetailsScreen() {
         providerName: clinic.name,
         type: 'clinic',
         status: 'pending',
-        date: preferredTime ? preferredTime.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        date: preferredTime ? getLocalDateInput(preferredTime) : getLocalDateInput(),
         time: preferredTime ? preferredTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
         preferredTime: preferredTime ? preferredTime.toISOString() : null,
         createdAt: new Date().toISOString(),
@@ -199,30 +198,7 @@ export default function AcademyClinicDetailsScreen() {
         comments: bookingComments.trim() || null,
       };
 
-      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
-      await upsertBookingTransaction(bookingRef.id, bookingData, user.uid, 'Academy-to-clinic booking created');
-      const providerId = clinic?.id;
-      try {
-        if (providerId) {
-          await notifyProviderAndAdmins(
-            providerId,
-            i18n.t('newBookingRequest') || 'New booking request',
-            `${academyName} ${i18n.t('requestedBooking') || 'requested a booking'}: ${serviceName}`,
-            'booking',
-            { bookingId: bookingRef.id },
-            user.uid
-          );
-        }
-        await createNotification({
-          userId: user.uid,
-          title: i18n.t('bookingRequestSent') || 'Booking request sent',
-          body: `${clinic?.name || 'Clinic'} – ${doctor}, ${serviceName}`,
-          type: 'booking',
-          data: { bookingId: bookingRef.id },
-        });
-      } catch (e) {
-        console.warn('Academy→clinic notification failed:', e);
-      }
+      await createBookingWithTransaction(bookingData, user.uid, 'Academy-to-clinic booking created');
 
       Alert.alert(
         i18n.t('reservation') || 'Reservation',
@@ -231,7 +207,8 @@ export default function AcademyClinicDetailsScreen() {
       );
     } catch (error) {
       console.error('Error creating clinic booking:', error);
-      Alert.alert(i18n.t('error'), i18n.t('bookingFailed') || 'Failed to create booking');
+      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
+      Alert.alert(i18n.t('error'), message);
     } finally {
       setBookingLoading(false);
     }
@@ -392,7 +369,7 @@ export default function AcademyClinicDetailsScreen() {
                 style={styles.timePickerContainer}
                 onPress={() => setShowTimePicker(true)}
               >
-                <Ionicons name="calendar-outline" size={20} color="#666" style={styles.timeIcon} />
+                <Ionicons name="calendar-outline" size={20} color="#0f766e" style={styles.timeIcon} />
                 <Text style={[styles.timeText, !preferredTime && styles.timePlaceholder]}>
                   {preferredTime ? preferredTime.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (i18n.t('selectDateAndTime') || 'Select preferred date & time')}
                 </Text>
@@ -405,6 +382,8 @@ export default function AcademyClinicDetailsScreen() {
                 onConfirm={handleConfirm}
                 onCancel={hideDatePicker}
                 is24Hour={false}
+                isDarkModeEnabled={false}
+                buttonTextColorIOS="#0f766e"
                 textColor="#000"
               />
 
@@ -517,10 +496,10 @@ const styles = StyleSheet.create({
   serviceOptionText: { fontSize: 16, color: '#000', flex: 1 },
   serviceOptionFee: { fontSize: 14, fontWeight: '600', color: '#000' },
   bookingHint: { fontSize: 14, color: '#666', fontStyle: 'italic', marginBottom: 12 },
-  timePickerContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 14, marginBottom: 16, backgroundColor: '#f9f9f9' },
+  timePickerContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#99f6e4', borderRadius: 12, padding: 14, marginBottom: 16, backgroundColor: '#ecfeff' },
   timeIcon: { marginRight: 10 },
-  timeText: { fontSize: 15, color: '#000', flex: 1 },
-  timePlaceholder: { color: '#999' },
+  timeText: { fontSize: 15, color: '#115e59', flex: 1 },
+  timePlaceholder: { color: '#0f766e' },
   commentsInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, fontSize: 15, color: '#000', minHeight: 80, textAlignVertical: 'top' },
   reserveButton: { backgroundColor: '#000', borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginTop: 20 },
   reserveButtonDisabled: { opacity: 0.6 },

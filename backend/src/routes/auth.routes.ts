@@ -44,8 +44,6 @@ const router = Router();
  */
 router.post('/signup', authRateLimiter, signup);
 
-router.post('/signup', authRateLimiter, signup);
-
 /**
  * @swagger
  * /api/auth/signin:

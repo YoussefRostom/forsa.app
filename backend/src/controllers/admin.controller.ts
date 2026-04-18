@@ -4,9 +4,33 @@ import { sendSuccess, sendError } from '../utils/response.util';
 import { createNotificationForUser } from '../utils/notification.util';
 import { AccountStatus } from '../types';
 import { z } from 'zod';
+import { listRevenueRecords, markRevenueAsReceived, summarizeRevenue } from '../services/revenue.service';
+
+function sanitizePage(value: string | string[] | undefined, fallback: number): number {
+  const parsed = parseInt(Array.isArray(value) ? value[0] : (value || ''), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function sanitizeLimit(value: string | string[] | undefined, fallback: number, max: number): number {
+  const parsed = sanitizePage(value, fallback);
+  return Math.min(parsed, max);
+}
+
+function getProfileCollectionForRole(role: string): string {
+  if (role === 'academy') return 'academies';
+  return `${role}s`;
+}
 
 const updateUserStatusSchema = z.object({
   status: z.nativeEnum(AccountStatus),
+});
+
+const listRevenueQuerySchema = z.object({
+  source: z.enum(['booking', 'checkin', 'all']).optional(),
+  providerId: z.string().trim().min(1).optional(),
+  bookingId: z.string().trim().min(1).optional(),
+  platformStatus: z.enum(['due', 'received', 'cancelled', 'all']).optional(),
 });
 
 /**
@@ -18,8 +42,8 @@ const updateUserStatusSchema = z.object({
 export async function listUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { role, status, page = '1', limit = '20' } = req.query;
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    const pageNum = sanitizePage(page as string, 1);
+    const limitNum = sanitizeLimit(limit as string, 20, 100);
     const offset = (pageNum - 1) * limitNum;
 
     let query: any = db.collection('users');
@@ -97,7 +121,7 @@ export async function getUserById(req: Request, res: Response, next: NextFunctio
     let profile = null;
     const role = userData?.role;
     if (role) {
-      const profileCollection = `${role}s`;
+      const profileCollection = getProfileCollectionForRole(role);
       const profileDoc = await db.collection(profileCollection).doc(id).get();
       if (profileDoc.exists) {
         profile = profileDoc.data();
@@ -164,7 +188,7 @@ export async function updateUserStatus(req: Request, res: Response, next: NextFu
         body: status === AccountStatus.BANNED ? 'Your account has been banned.' : 'Your account has been suspended. Please contact support.',
         type: 'system',
         data: { action: 'suspended', status },
-        createdBy: req.user?.userId,
+        createdBy: req.user?.userId ?? undefined,
       }).catch((err) => console.error('Suspend notification failed:', err));
     } else if (status === AccountStatus.ACTIVE) {
       // Notify user that account was reactivated
@@ -174,7 +198,7 @@ export async function updateUserStatus(req: Request, res: Response, next: NextFu
         body: 'Your account has been reactivated. You can sign in again.',
         type: 'system',
         data: { action: 'activated', status },
-        createdBy: req.user?.userId,
+        createdBy: req.user?.userId ?? undefined,
       }).catch((err) => console.error('Activate notification failed:', err));
     }
 
@@ -206,8 +230,8 @@ export async function updateUserStatus(req: Request, res: Response, next: NextFu
 export async function listAllBookings(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const { status, type, page = '1', limit = '20' } = req.query;
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
+    const pageNum = sanitizePage(page as string, 1);
+    const limitNum = sanitizeLimit(limit as string, 20, 100);
     const offset = (pageNum - 1) * limitNum;
 
     let query: any = db.collection('bookings');
@@ -327,6 +351,12 @@ export async function createAdminMessage(req: Request, res: Response, next: Next
   try {
     const { id: userId } = req.params;
     const { content } = req.body;
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      sendError(res, 'NOT_FOUND', 'User not found', null, 404);
+      return;
+    }
+
 
     if (!content || typeof content !== 'string' || !content.trim()) {
       sendError(res, 'VALIDATION_ERROR', 'Message content is required', null, 400);
@@ -334,7 +364,7 @@ export async function createAdminMessage(req: Request, res: Response, next: Next
     }
 
     // Create a backend record for admin messages
-    const adminId = req.user?.userId || null;
+    const adminId = req.user?.userId ?? undefined;
     const payload = {
       adminId,
       userId,
@@ -370,6 +400,79 @@ export async function getAdminMessages(req: Request, res: Response, next: NextFu
     const messages = snapshot.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     sendSuccess(res, { messages }, 'Admin messages retrieved');
   } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * List revenue ledger records for admin review.
+ */
+export async function listRevenue(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const validatedQuery = listRevenueQuerySchema.parse(req.query || {});
+    const pageNum = sanitizePage(req.query.page as string, 1);
+    const limitNum = sanitizeLimit(req.query.limit as string, 20, 100);
+
+    const result = await listRevenueRecords({
+      source: validatedQuery.source || 'booking',
+      providerId: validatedQuery.providerId,
+      bookingId: validatedQuery.bookingId,
+      platformStatus: validatedQuery.platformStatus || 'all',
+      page: pageNum,
+      limit: limitNum,
+    });
+
+    sendSuccess(res, result, 'Revenue records retrieved successfully');
+  } catch (error: any) {
+    if (error?.name === 'ZodError') {
+      sendError(res, 'VALIDATION_ERROR', 'Invalid query parameters', error.errors, 400);
+      return;
+    }
+    next(error);
+  }
+}
+
+/**
+ * Summarize due vs received platform commission.
+ */
+export async function getRevenueSummary(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const validatedQuery = listRevenueQuerySchema.parse(req.query || {});
+    const summary = await summarizeRevenue({
+      source: validatedQuery.source || 'booking',
+      providerId: validatedQuery.providerId,
+      bookingId: validatedQuery.bookingId,
+      platformStatus: validatedQuery.platformStatus || 'all',
+    });
+
+    sendSuccess(res, summary, 'Revenue summary retrieved successfully');
+  } catch (error: any) {
+    if (error?.name === 'ZodError') {
+      sendError(res, 'VALIDATION_ERROR', 'Invalid query parameters', error.errors, 400);
+      return;
+    }
+    next(error);
+  }
+}
+
+/**
+ * Mark a commission record as collected by platform/admin.
+ */
+export async function collectRevenue(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user) {
+      sendError(res, 'UNAUTHORIZED', 'Authentication required', null, 401);
+      return;
+    }
+
+    const { id } = req.params;
+    const updated = await markRevenueAsReceived(id, req.user.userId);
+    sendSuccess(res, updated, 'Revenue record marked as received');
+  } catch (error: any) {
+    if (typeof error?.statusCode === 'number' && typeof error?.code === 'string') {
+      sendError(res, error.code, error.message, null, error.statusCode);
+      return;
+    }
     next(error);
   }
 }

@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { collection, onSnapshot, getFirestore, orderBy, query, where, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, getFirestore, orderBy, query, where } from 'firebase/firestore';
 import React, { useState, useRef } from 'react';
-import { ActivityIndicator, Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
@@ -13,7 +12,6 @@ import i18n from '../locales/i18n';
 import { auth } from '../lib/firebase';
 
 const ClinicFeedScreen = () => {
-  const router = useRouter();
   const { openMenu } = useHamburgerMenu();
   const [feed, setFeed] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

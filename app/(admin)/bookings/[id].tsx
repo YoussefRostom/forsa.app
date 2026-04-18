@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { formatBookingBranch } from '../../../lib/bookingBranch';
+import { getBookingPublicId } from '../../../lib/bookingId';
 import { auth, db } from '../../../lib/firebase';
 import { getBookingStatusMeta } from '../../../lib/bookingStatus';
 import { notifyBookingStatusChange } from '../../../lib/bookingNotifications';
@@ -94,13 +96,18 @@ export default function AdminBookingDetailsScreen() {
     const [showPicker, setShowPicker] = useState(false);
 
     useEffect(() => {
-        const load = async () => {
-            try {
-                const snap = await getDoc(doc(db, 'bookings', String(id)));
-                if (snap.exists()) {
-                    const bookingData: any = { id: snap.id, ...snap.data() };
-                    setBooking(bookingData);
+        const bookingRef = doc(db, 'bookings', String(id));
+        const unsubscribe = onSnapshot(
+            bookingRef,
+            async (snap) => {
+                try {
+                    if (!snap.exists()) {
+                        setBooking(null);
+                        setLoading(false);
+                        return;
+                    }
 
+                    const bookingData: any = { id: snap.id, ...snap.data() };
                     const candidateIds = Array.from(new Set([
                         bookingData.parentId,
                         bookingData.playerId,
@@ -131,6 +138,7 @@ export default function AdminBookingDetailsScreen() {
                         } catch {}
                     }));
 
+                    setBooking(bookingData);
                     setResolvedNames({
                         parent: pickName(
                             bookingData.parentName,
@@ -152,16 +160,19 @@ export default function AdminBookingDetailsScreen() {
                             bookingData.providerId ? namesById[String(bookingData.providerId)] : '',
                         ),
                     });
-                } else {
-                    setBooking(null);
+                } catch (error) {
+                    console.error('Failed to load booking:', error);
+                } finally {
+                    setLoading(false);
                 }
-            } catch (error) {
-                console.error('Failed to load booking:', error);
-            } finally {
+            },
+            (error) => {
+                console.error('Failed to subscribe to booking:', error);
                 setLoading(false);
             }
-        };
-        load();
+        );
+
+        return unsubscribe;
     }, [id]);
 
     const updateStatus = async (status: string) => {
@@ -190,7 +201,7 @@ export default function AdminBookingDetailsScreen() {
                     actorLabel: 'Admin',
                 });
             } catch {}
-        } catch (error) {
+        } catch {
             Alert.alert('Error', 'Failed to update status');
         }
     };
@@ -274,15 +285,16 @@ export default function AdminBookingDetailsScreen() {
     const bookingType = String(booking.sessionType || booking.type || 'booking').replace(/_/g, ' ');
     const bookedBy = inferredBooker === 'academy' ? 'Academy' : bookedByLabel(booking.customerType);
     const amount = `${Number(booking.price || booking.fee || booking.amount || 0)} EGP`;
-    const bookingCode = String(booking.id || '').slice(-6).toUpperCase();
+    const bookingCode = getBookingPublicId(booking);
     const chatActionLabel = resolveChatLabel(booking);
     const chatDisplayName = inferredBooker === 'parent' ? (parent === '-' ? customer : parent) : inferredBooker === 'player' ? player : customer;
+    const branch = formatBookingBranch(booking);
 
     return (
         <ScrollView style={S.container} contentContainerStyle={S.content}>
             <View style={S.hero}>
                 <View style={S.heroTop}>
-                    <Text style={S.heroEyebrow}>Booking #{bookingCode || '------'}</Text>
+                    <Text style={S.heroEyebrow}>{bookingCode || 'BK------'}</Text>
                     <View style={[S.statusBadge, { backgroundColor: statusMeta.color }]}>
                         <Text style={S.statusBadgeText}>{statusMeta.label}</Text>
                     </View>
@@ -305,6 +317,7 @@ export default function AdminBookingDetailsScreen() {
 
             <Section title="Reservation">
                 <KV label="Service" value={service} />
+                <KV label="Branch" value={branch || '-'} />
                 <KV label="Date" value={fmt(booking.date)} />
                 <KV label="Time" value={String(booking.time || '-')} />
                 <KV label="Attendance" value={attendance} />

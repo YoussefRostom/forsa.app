@@ -98,6 +98,9 @@ export interface AcademyProgram {
   coachBio?: string;
   coachPhotoUrl?: string;
   specializations?: string[];
+  branchId?: string;
+  branchName?: string;
+  branchAddress?: string;
   maxParticipants: number;
   duration: number; // Duration in minutes
   availability?: any; // JSON object with schedule

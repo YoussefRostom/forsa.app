@@ -8,6 +8,7 @@ import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import SimpleSelect from '../components/SimpleSelect';
 import i18n from '../locales/i18n';
+import { isExpectedNetworkError } from '../lib/networkErrors';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { uploadMedia } from '../services/MediaService';
@@ -108,7 +109,7 @@ export default function PlayerProfileScreen() {
     }).start();
 
     fetchUserData();
-  }, []);
+  }, [fadeAnim]);
 
   const fetchUserData = async () => {
     try {
@@ -169,8 +170,12 @@ export default function PlayerProfileScreen() {
         profilePhoto: nextProfilePhoto || '',
       }));
     } catch (error) {
-      console.error('Error fetching user data:', error);
-      Alert.alert(i18n.t('error') || 'Error', 'Failed to load profile data');
+      if (isExpectedNetworkError(error)) {
+        Alert.alert(i18n.t('error') || 'Error', 'Unable to load profile data while offline.');
+      } else {
+        console.error('Error fetching user data:', error);
+        Alert.alert(i18n.t('error') || 'Error', 'Failed to load profile data');
+      }
     } finally {
       setLoading(false);
     }

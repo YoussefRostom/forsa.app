@@ -1,15 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, Animated, Easing, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator , Image } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
+import { isExpectedNetworkError } from '../lib/networkErrors';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { uploadMedia } from '../services/MediaService';
 import * as ImagePicker from 'expo-image-picker';
-import { Image } from 'react-native';
+
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
 
@@ -22,13 +23,9 @@ export default function ParentEditProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [cityModal, setCityModal] = useState(false);
-  const [children, setChildren] = useState<{ name: string; age: string }[]>([{ name: '', age: '' }]);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
-  const [showAgeModalIndex, setShowAgeModalIndex] = useState<number | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  const ageOptions = Array.from({ length: 13 }, (_, i) => (4 + i).toString());
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -39,7 +36,7 @@ export default function ParentEditProfileScreen() {
     }).start();
 
     fetchUserData();
-  }, []);
+  }, [fadeAnim]);
 
   const fetchUserData = async () => {
     try {
@@ -64,9 +61,6 @@ export default function ParentEditProfileScreen() {
           setProfilePhoto(data.profilePhoto);
           setProfilePhotoUrl(data.profilePhoto);
         }
-        if (data.children && Array.isArray(data.children) && data.children.length > 0) {
-          setChildren(data.children);
-        }
       } else {
         // Fallback to 'users' collection if not found in 'parents'
         const userDocRef = doc(db, 'users', user.uid);
@@ -82,14 +76,15 @@ export default function ParentEditProfileScreen() {
             setProfilePhoto(data.profilePhoto);
             setProfilePhotoUrl(data.profilePhoto);
           }
-          if (data.children && Array.isArray(data.children) && data.children.length > 0) {
-            setChildren(data.children);
-          }
         }
       }
     } catch (error) {
-      console.error('Error fetching user data:', error);
-      Alert.alert(i18n.t('error'), 'Failed to load profile data');
+      if (isExpectedNetworkError(error)) {
+        Alert.alert(i18n.t('error') || 'Error', 'Unable to load profile data while offline.');
+      } else {
+        console.error('Error fetching user data:', error);
+        Alert.alert(i18n.t('error') || 'Error', 'Failed to load profile data');
+      }
     } finally {
       setLoading(false);
     }
@@ -138,9 +133,6 @@ export default function ParentEditProfileScreen() {
           return;
         }
       }
-
-      const validChildren = children.filter(c => c.name.trim() !== '' && c.age.trim() !== '');
-
       const updateData: any = {
         phone: phone.trim(),
         updatedAt: new Date().toISOString()
@@ -150,7 +142,6 @@ export default function ParentEditProfileScreen() {
       if (name && name.trim()) updateData.parentName = name.trim();
       if (email && email.trim()) updateData.email = email.trim();
       if (city && city.trim()) updateData.city = city.trim();
-      if (validChildren.length > 0) updateData.children = validChildren;
       if (finalProfilePhotoUrl) updateData.profilePhoto = finalProfilePhotoUrl;
 
       // Update both
@@ -164,19 +155,6 @@ export default function ParentEditProfileScreen() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleChildChange = (idx: number, value: string) => {
-    setChildren((prev) => prev.map((c, i) => i === idx ? { ...c, name: value } : c));
-  };
-  const handleChildAgeChange = (idx: number, value: string) => {
-    setChildren((prev) => prev.map((c, i) => i === idx ? { ...c, age: value } : c));
-    setShowAgeModalIndex(null);
-  };
-  const handleAddChild = () => setChildren((prev) => [...prev, { name: '', age: '' }]);
-  const handleRemoveChild = (idx: number) => {
-    if (children.length === 1) return;
-    setChildren((prev) => prev.filter((_, i) => i !== idx));
   };
 
   if (loading) {
@@ -232,10 +210,6 @@ export default function ParentEditProfileScreen() {
               </View>
 
               <View style={styles.heroMetaRow}>
-                <View style={styles.heroChip}>
-                  <Ionicons name="people-outline" size={14} color="#111827" />
-                  <Text style={styles.heroChipText}>{children.length} {(i18n.t('children') || 'Children')}</Text>
-                </View>
                 <TouchableOpacity style={styles.heroGhostBtn} onPress={handlePickPhoto}>
                   <Ionicons name="image-outline" size={14} color="#111827" />
                   <Text style={styles.heroGhostBtnText}>{i18n.t('upload') || 'Upload'}</Text>
@@ -299,8 +273,8 @@ export default function ParentEditProfileScreen() {
 
             <View style={styles.sectionCard}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>{i18n.t('locationLabel') || 'Location'}</Text>
-                <Text style={styles.sectionHint}>{i18n.t('locationExperienceHint') || 'Help academies and clinics find you faster.'}</Text>
+                <Text style={styles.sectionTitle}>{i18n.t('city') || 'City'}</Text>
+                <Text style={styles.sectionHint}>{i18n.t('selectCity') || 'Select your city'}</Text>
               </View>
 
               <View style={[styles.inputGroup, styles.inputGroupNoMargin]}>
@@ -341,85 +315,6 @@ export default function ParentEditProfileScreen() {
                     </View>
                   </TouchableOpacity>
                 </Modal>
-              </View>
-            </View>
-
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeaderRow}>
-                <View>
-                  <Text style={styles.sectionTitle}>{i18n.t('child_names') || 'Children'}</Text>
-                  <Text style={styles.sectionHint}>{i18n.t('selectAgeToReview') || 'Add your children details for booking.'}</Text>
-                </View>
-                <TouchableOpacity onPress={handleAddChild} style={styles.addChildButton}>
-                  <Ionicons name="add-circle-outline" size={18} color="#111827" />
-                  <Text style={styles.addChildText}> {i18n.t('add_child')}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={[styles.inputGroup, styles.inputGroupNoMargin]}>
-                <Text style={styles.label}>{i18n.t('child_names')}</Text>
-                {children.map((child, idx) => (
-                  <View key={idx} style={styles.childCard}>
-                    <View style={styles.childCardHeader}>
-                      <Text style={styles.childCardTitle}>{(i18n.t('childName') || 'Child')} {idx + 1}</Text>
-                      {children.length > 1 && (
-                        <TouchableOpacity onPress={() => handleRemoveChild(idx)} style={styles.removeButton}>
-                          <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-
-                    <View style={[styles.inputWrapper, styles.childNameInput]}>
-                      <Ionicons name="person-outline" size={20} color="#999" style={styles.inputIcon} />
-                      <TextInput
-                        style={styles.input}
-                        placeholder={i18n.t('child_name_ph') + ` ${idx + 1}`}
-                        value={child.name}
-                        onChangeText={(v) => handleChildChange(idx, v)}
-                        autoCapitalize="words"
-                        placeholderTextColor="#999"
-                      />
-                    </View>
-
-                    <View style={styles.inputWrapper}>
-                      <Ionicons name="calendar-outline" size={20} color="#999" style={styles.inputIcon} />
-                      <TouchableOpacity
-                        style={{ flex: 1, justifyContent: 'center', paddingRight: 8 }}
-                        onPress={() => setShowAgeModalIndex(idx)}
-                      >
-                        <Text style={[styles.ageText, !child.age && styles.agePlaceholder]} numberOfLines={1}>
-                          {child.age ? `${child.age} yrs` : 'Pick age'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Modal visible={showAgeModalIndex === idx} transparent animationType="fade" onRequestClose={() => setShowAgeModalIndex(null)}>
-                      <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowAgeModalIndex(null)}>
-                        <View style={styles.ageModalContent}>
-                          <View style={styles.ageModalHeader}>
-                            <Text style={styles.ageModalTitle}>{i18n.t('selectAge') || 'Select Age'}</Text>
-                            <TouchableOpacity onPress={() => setShowAgeModalIndex(null)}>
-                              <Ionicons name="close" size={24} color="#000" />
-                            </TouchableOpacity>
-                          </View>
-                          <ScrollView style={styles.ageModalScrollView}>
-                            {ageOptions.map((age) => (
-                              <TouchableOpacity
-                                key={age}
-                                style={[styles.ageOption, child.age === age && styles.ageOptionSelected]}
-                                onPress={() => handleChildAgeChange(idx, age)}
-                              >
-                                <Text style={[styles.ageOptionText, child.age === age && styles.ageOptionTextSelected]}>
-                                  {age} {i18n.t('years') || 'years'}
-                                </Text>
-                                {child.age === age && <Ionicons name="checkmark" size={20} color="#fff" />}
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      </TouchableOpacity>
-                    </Modal>
-                  </View>
-                ))}
               </View>
             </View>
 

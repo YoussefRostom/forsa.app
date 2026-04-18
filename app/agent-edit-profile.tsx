@@ -41,7 +41,7 @@ export default function AgentEditProfileScreen() {
     }).start();
 
     fetchUserData();
-  }, []);
+  }, [fadeAnim]);
 
   const fetchUserData = async () => {
     try {

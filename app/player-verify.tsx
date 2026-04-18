@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef } from 'react';
 import { Animated, Easing, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -8,7 +7,6 @@ import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 
 export default function PlayerVerifyScreen() {
-  const router = useRouter();
   const { openMenu } = useHamburgerMenu();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -19,7 +17,7 @@ export default function PlayerVerifyScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   return (
     <View style={styles.container}>

@@ -1,10 +1,20 @@
 /**
  * Robust normalization for Auth IDs on the backend.
- * Extracts only digits to match the frontend standard.
+ * Produces a Firebase-compatible E.164-like phone number string.
  */
 export function normalizePhoneForTwilio(phone: string): string {
-    if (!phone) return "";
+    if (!phone) return '';
 
-    // Extract and return only digits
-    return phone.replace(/\D/g, "");
+    const trimmed = phone.trim();
+    if (!trimmed) return '';
+
+    if (trimmed.startsWith('+')) {
+        return `+${trimmed.slice(1).replace(/\D/g, '')}`;
+    }
+
+    if (trimmed.startsWith('00')) {
+        return `+${trimmed.slice(2).replace(/\D/g, '')}`;
+    }
+
+    return `+${trimmed.replace(/\D/g, '')}`;
 }

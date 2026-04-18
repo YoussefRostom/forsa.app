@@ -11,9 +11,9 @@ if (typeof global.crypto === 'undefined') {
 }
 
 import { I18nManager } from 'react-native';
-import '../locales/i18n'; // Load translations
-import '../lib/firebase'; // Initialize Firebase
-import { initializeLanguage } from '../lib/languageUtils';
+import './locales/i18n'; // Load translations
+import './lib/firebase'; // Initialize Firebase
+import { initializeLanguage } from './lib/languageUtils';
 
 // Handle unhandled promise rejections (e.g., keep-awake errors from dependencies)
 // This suppresses non-critical errors from dependencies like expo-keep-awake
@@ -39,7 +39,7 @@ if (typeof ErrorUtils !== 'undefined') {
 }
 
 // Set initial RTL state based on saved language
-initializeLanguage().catch(error => {
+initializeLanguage().catch((error: unknown) => {
   console.error('Error initializing language:', error);
 });
 

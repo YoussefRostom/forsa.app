@@ -1,13 +1,4 @@
 // Agent type
-type Agent = {
-  id: string;
-  name: string;
-  city: string;
-  description: string;
-  profilePic?: string;
-  phone?: string;
-};
-type AgentRecord = AgentDirectoryEntry;
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
@@ -18,8 +9,8 @@ import { type QueryDocumentSnapshot, type DocumentData } from 'firebase/firestor
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
-import * as CommonStyles from '../styles/CommonStyles';
 import { fetchAgentsPage, type AgentDirectoryEntry } from '../services/AgentDataService';
+type AgentRecord = AgentDirectoryEntry;
 
 // Backend fetch for agents
 // const AGENT_API_URL = 'http://192.168.1.31:4000/api/agents';
@@ -40,7 +31,7 @@ function AgentCardSkeleton() {
         Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
+  }, [pulseAnim]);
   return (
     <Animated.View style={[styles.card, { opacity: pulseAnim, flexDirection: 'row', alignItems: 'center' }]}> 
       <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#ddd', marginRight: 12 }} />

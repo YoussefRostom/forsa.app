@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-video';
+import { ResizeMode, Video } from 'expo-av';
 import React, { memo, useMemo, useState } from 'react';
 import {
   Image,
@@ -72,7 +72,7 @@ const normalizeMedia = (post: any): FeedMediaItem[] => {
     .filter(Boolean) as FeedMediaItem[];
 };
 
-function ZoomableStage({ item }: { item: FeedMediaItem }) {
+function ZoomableStage({ item, rotationDeg = 0 }: { item: FeedMediaItem; rotationDeg?: number }) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -132,16 +132,17 @@ function ZoomableStage({ item }: { item: FeedMediaItem }) {
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
+      { rotate: `${rotationDeg}deg` },
       { scale: scale.value },
       { translateX: translateX.value },
       { translateY: translateY.value },
     ],
-  }));
+  }), [rotationDeg]);
 
   return (
     <GestureDetector gesture={mediaGesture}>
       <Animated.View style={[styles.viewerMediaShell, animatedStyle]}>
-        {item.type === 'video' && item.uri ? (
+        {item.type === 'video' ? (
           <Video
             source={{ uri: item.uri }}
             style={styles.viewerMedia}
@@ -149,9 +150,9 @@ function ZoomableStage({ item }: { item: FeedMediaItem }) {
             resizeMode={ResizeMode.CONTAIN}
             isLooping={false}
           />
-        ) : item.type === 'image' && item.uri ? (
+        ) : (
           <Image source={{ uri: item.uri }} style={styles.viewerMedia} resizeMode="contain" />
-        ) : null}
+        )}
       </Animated.View>
     </GestureDetector>
   );
@@ -162,6 +163,7 @@ function ZoomableFeedMedia({ post }: { post: any }) {
   const { width } = useWindowDimensions();
   const [viewerVisible, setViewerVisible] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [rotationDeg, setRotationDeg] = useState(0);
   const [imageHeights, setImageHeights] = useState<Record<string, number>>({});
 
   const usableWidth = Math.max(Math.min(width - 96, 520), 240);
@@ -183,21 +185,22 @@ function ZoomableFeedMedia({ post }: { post: any }) {
     return null;
   }
 
+  const openViewerAtIndex = (index: number) => {
+    setSelectedIndex(index);
+    setRotationDeg(0);
+    setViewerVisible(true);
+  };
+
   const renderPreview = (item: FeedMediaItem, index: number) => (
-    <TouchableOpacity
+    <View
       key={item.key}
       style={[
         styles.previewCard,
         mediaItems.length > 1 && { width: usableWidth, marginRight: index === mediaItems.length - 1 ? 0 : 12 },
         { height: getPreviewHeight(item) },
       ]}
-      activeOpacity={0.92}
-      onPress={() => {
-        setSelectedIndex(index);
-        setViewerVisible(true);
-      }}
     >
-      {item.type === 'video' && item.uri ? (
+      {item.type === 'video' ? (
         <Video
           source={{ uri: item.uri }}
           style={styles.previewMedia}
@@ -205,27 +208,32 @@ function ZoomableFeedMedia({ post }: { post: any }) {
           resizeMode={ResizeMode.COVER}
           isLooping={false}
         />
-      ) : item.type === 'image' && item.uri ? (
+      ) : (
         <Image
           source={{ uri: item.uri }}
           style={styles.previewMedia}
           resizeMode="cover"
           onLoad={(event) => handleImageLoad(item, event)}
         />
-      ) : null}
+      )}
 
       <View style={styles.previewOverlay}>
-        <View style={styles.expandBadge}>
-          <Ionicons name="scan-outline" size={16} color="#fff" />
-          <Text style={styles.expandBadgeText}>Zoom</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.expandHotspot, item.type === 'image' && styles.expandIconButton]}
+          activeOpacity={0.85}
+          onPress={() => openViewerAtIndex(index)}
+        >
+          {item.type === 'image' ? (
+            <Ionicons name="expand-outline" size={16} color="#fff" />
+          ) : null}
+        </TouchableOpacity>
         {mediaItems.length > 1 && (
           <View style={styles.countBadge}>
             <Text style={styles.countBadgeText}>{index + 1}/{mediaItems.length}</Text>
           </View>
         )}
       </View>
-    </TouchableOpacity>
+    </View>
   );
 
   return (
@@ -257,10 +265,21 @@ function ZoomableFeedMedia({ post }: { post: any }) {
         <View style={styles.modalBackdrop}>
           <TouchableOpacity
             style={styles.closeButton}
-            onPress={() => setViewerVisible(false)}
+            onPress={() => {
+              setViewerVisible(false);
+              setRotationDeg(0);
+            }}
             activeOpacity={0.8}
           >
             <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.rotateButton}
+            onPress={() => setRotationDeg((prev) => (prev + 90) % 360)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="refresh" size={22} color="#fff" />
           </TouchableOpacity>
 
           <View style={styles.hintPill}>
@@ -277,17 +296,18 @@ function ZoomableFeedMedia({ post }: { post: any }) {
               onMomentumScrollEnd={(event) => {
                 const nextIndex = Math.round(event.nativeEvent.contentOffset.x / Math.max(width, 1));
                 setSelectedIndex(nextIndex);
+                setRotationDeg(0);
               }}
             >
               {mediaItems.map((item) => (
                 <View key={`viewer-${item.key}`} style={[styles.viewerPage, { width }]}>
-                  <ZoomableStage item={item} />
+                  <ZoomableStage item={item} rotationDeg={rotationDeg} />
                 </View>
               ))}
             </ScrollView>
           ) : (
             <View style={[styles.viewerPage, { width }]}>
-              <ZoomableStage item={mediaItems[0]} />
+              <ZoomableStage item={mediaItems[0]} rotationDeg={rotationDeg} />
             </View>
           )}
         </View>
@@ -323,20 +343,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 12,
   },
-  expandBadge: {
+  expandHotspot: {
     alignSelf: 'flex-end',
-    flexDirection: 'row',
+    width: 42,
+    height: 42,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.62)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
   },
-  expandBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
+  expandIconButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    borderRadius: 999,
   },
   countBadge: {
     alignSelf: 'flex-start',
@@ -364,6 +380,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.65)',
     borderRadius: 18,
     padding: 8,
+  },
+  rotateButton: {
+    position: 'absolute',
+    top: 54,
+    right: 72,
+    zIndex: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
   },
   hintPill: {
     position: 'absolute',

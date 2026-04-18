@@ -19,7 +19,7 @@ export default function TitleBar({ title, menuVisible, setMenuVisible }: TitleBa
         </View>
       </TouchableOpacity>
       <Text style={styles.titleText}>{title}</Text>
-      <HamburgerMenu visible={menuVisible} onClose={() => setMenuVisible(false)} />
+      <HamburgerMenu />
     </View>
   );
 }

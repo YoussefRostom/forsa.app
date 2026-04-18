@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { auth, db } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp, doc, setDoc, query, where, orderBy, onSnapshot, Unsubscribe, getDoc, deleteDoc, updateDoc, getDocs } from 'firebase/firestore';
+import { getBackendUrlCandidates, rememberWorkingBackendUrl } from '../lib/config';
 import { getCurrentUserRole, getVisibleToRoles, type Role } from './UserRoleService';
 
 // Helper function to get environment variables with multiple fallbacks
@@ -81,6 +82,294 @@ export interface TaggedUserMeta {
   role?: string;
 }
 
+interface SignedUploadConfig {
+  uploadUrl: string;
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  folder: string;
+  resourceType: ResourceType;
+}
+
+const CLOUDINARY_CHUNKED_VIDEO_THRESHOLD_BYTES = 20 * 1024 * 1024;
+const CLOUDINARY_VIDEO_CHUNK_SIZE_BYTES = 8 * 1024 * 1024;
+
+function parseJsonSafely<T>(value: string): T | null {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeUnexpectedUploadResponse(responseText: string, status: number): string {
+  const trimmed = responseText.trim();
+  const snippet = trimmed.slice(0, 180);
+
+  if (trimmed.startsWith('<')) {
+    return `Upload failed: expected JSON but received HTML (HTTP ${status}). This usually means the upload endpoint or Cloudinary credentials are wrong, or the request was intercepted by an error page.`;
+  }
+
+  if (!trimmed) {
+    return `Upload failed: empty response from upload endpoint (HTTP ${status}).`;
+  }
+
+  return `Upload failed: unexpected response from upload endpoint (HTTP ${status}): ${snippet}`;
+}
+
+function appendCloudinaryUploadParams(
+  formData: FormData,
+  signedConfig: SignedUploadConfig | null,
+  folder: string,
+  uploadPreset?: string
+): void {
+  if (signedConfig) {
+    formData.append('api_key', signedConfig.apiKey);
+    formData.append('timestamp', String(signedConfig.timestamp));
+    formData.append('signature', signedConfig.signature);
+    formData.append('folder', signedConfig.folder);
+    return;
+  }
+
+  formData.append('upload_preset', String(uploadPreset || '').trim());
+  formData.append('folder', folder);
+}
+
+async function performCloudinaryUploadRequest(
+  endpoint: string,
+  formData: FormData,
+  timeoutMs: number,
+  uploadMode: 'signed' | 'unsigned',
+  onProgress?: (progress: number) => void,
+  headers?: Record<string, string>
+): Promise<CloudinaryResponse & { error?: { message?: string }; done?: boolean }> {
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const timeoutId = setTimeout(() => {
+      try {
+        xhr.abort();
+      } catch {
+        // no-op
+      }
+    }, timeoutMs);
+
+    xhr.open('POST', endpoint);
+    xhr.responseType = 'text';
+    xhr.setRequestHeader('Accept', 'application/json');
+
+    Object.entries(headers || {}).forEach(([key, value]) => {
+      xhr.setRequestHeader(key, value);
+    });
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        const progress = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
+        onProgress(progress);
+      }
+    };
+
+    xhr.onload = () => {
+      clearTimeout(timeoutId);
+
+      try {
+        const responseText = typeof xhr.response === 'string' ? xhr.response : xhr.responseText;
+        const parsed = parseJsonSafely<CloudinaryResponse & { error?: { message?: string }; done?: boolean }>(responseText || '');
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+          let errorMessage = parsed?.error?.message
+            ? `Cloudinary upload failed: ${parsed.error.message}`
+            : summarizeUnexpectedUploadResponse(responseText || '', xhr.status);
+
+          if (xhr.status === 401) {
+            errorMessage += '\n\nThis usually means:\n' +
+              '1. Your upload preset name is incorrect, OR\n' +
+              '2. Your upload preset is not set to "Unsigned" mode, OR\n' +
+              '3. Your cloud name is incorrect\n\n' +
+              'Please verify your Cloudinary credentials in the .env file and ensure:\n' +
+              '- The upload preset exists and is set to "Unsigned"\n' +
+              '- The cloud name matches your Cloudinary account\n' +
+              '- You have restarted the Expo server after updating .env';
+          }
+
+          if (uploadMode === 'signed' && xhr.status === 403) {
+            errorMessage += '\n\nThe backend signed the upload request, but Cloudinary rejected it. Check backend Cloudinary env vars and server clock skew.';
+          }
+
+          reject(new Error(errorMessage));
+          return;
+        }
+
+        if (!parsed) {
+          reject(new Error(summarizeUnexpectedUploadResponse(responseText || '', xhr.status)));
+          return;
+        }
+
+        if (parsed?.error) {
+          reject(new Error(`Cloudinary error: ${parsed.error.message || 'Unknown error'}`));
+          return;
+        }
+
+        resolve(parsed);
+      } catch (parseError: any) {
+        reject(new Error(parseError?.message || 'Failed to parse upload response'));
+      }
+    };
+
+    xhr.onerror = () => {
+      clearTimeout(timeoutId);
+      reject(new Error('Failed to upload media to Cloudinary. Please check your connection and try again.'));
+    };
+
+    xhr.onabort = () => {
+      clearTimeout(timeoutId);
+      reject(new Error('Upload timed out. Please try a smaller file or a stronger connection.'));
+    };
+
+    onProgress?.(1);
+    xhr.send(formData);
+  });
+}
+
+async function uploadLargeVideoInChunks(params: {
+  localUri: string;
+  endpoint: string;
+  filename: string;
+  mimeType: string;
+  fileSize: number;
+  folder: string;
+  uploadMode: 'signed' | 'unsigned';
+  signedConfig: SignedUploadConfig | null;
+  uploadPreset?: string;
+  onProgress?: (progress: number) => void;
+}): Promise<CloudinaryResponse> {
+  const FileSystem = await import('expo-file-system/legacy');
+  const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const cacheDirectory = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
+  let start = 0;
+  let finalResponse: (CloudinaryResponse & { done?: boolean }) | null = null;
+
+  while (start < params.fileSize) {
+    const chunkLength = Math.min(CLOUDINARY_VIDEO_CHUNK_SIZE_BYTES, params.fileSize - start);
+    const endExclusive = start + chunkLength;
+    const base64Chunk = await FileSystem.readAsStringAsync(params.localUri, {
+      encoding: FileSystem.EncodingType.Base64,
+      position: start,
+      length: chunkLength,
+    });
+
+    const chunkUri = `${cacheDirectory}cloudinary-video-chunk-${uploadId}-${start}.part`;
+
+    try {
+      await FileSystem.writeAsStringAsync(chunkUri, base64Chunk, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: chunkUri,
+        type: params.mimeType,
+        name: `${params.filename}.part`,
+      } as any);
+      appendCloudinaryUploadParams(formData, params.signedConfig, params.folder, params.uploadPreset);
+
+      finalResponse = await performCloudinaryUploadRequest(
+        params.endpoint,
+        formData,
+        180000,
+        params.uploadMode,
+        params.onProgress
+          ? (chunkProgress) => {
+              const uploadedBytes = start + Math.round((chunkProgress / 100) * chunkLength);
+              const overallProgress = Math.min(100, Math.max(0, Math.round((uploadedBytes / params.fileSize) * 100)));
+              params.onProgress?.(overallProgress);
+            }
+          : undefined,
+        {
+          'X-Unique-Upload-Id': uploadId,
+          'Content-Range': `bytes ${start}-${endExclusive - 1}/${params.fileSize}`,
+        }
+      );
+    } finally {
+      try {
+        await FileSystem.deleteAsync(chunkUri, { idempotent: true });
+      } catch {
+        // Ignore temp chunk cleanup failures.
+      }
+    }
+
+    start = endExclusive;
+    params.onProgress?.(Math.min(100, Math.round((start / params.fileSize) * 100)));
+  }
+
+  if (!finalResponse?.secure_url) {
+    throw new Error('Chunked upload completed without a final Cloudinary asset response.');
+  }
+
+  return finalResponse;
+}
+
+async function requestSignedUploadConfig(
+  resourceType: ResourceType,
+  folder: string
+): Promise<SignedUploadConfig | null> {
+  const user = auth.currentUser;
+  if (!user) {
+    return null;
+  }
+
+  const idToken = await user.getIdToken();
+  const candidates = getBackendUrlCandidates();
+
+  for (const backendUrl of candidates) {
+    try {
+      const response = await fetch(`${backendUrl}/api/media/signed-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          resourceType,
+          folder,
+        }),
+      });
+
+      const responseText = await response.text();
+      const payload = parseJsonSafely<any>(responseText);
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const data = payload?.data;
+      if (
+        data
+        && typeof data.uploadUrl === 'string'
+        && typeof data.apiKey === 'string'
+        && typeof data.signature === 'string'
+        && typeof data.timestamp === 'number'
+      ) {
+        rememberWorkingBackendUrl(backendUrl);
+        return {
+          uploadUrl: data.uploadUrl,
+          cloudName: String(data.cloudName || ''),
+          apiKey: data.apiKey,
+          timestamp: data.timestamp,
+          signature: data.signature,
+          folder: String(data.folder || folder),
+          resourceType,
+        };
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  return null;
+}
+
 /**
  * Upload media file directly to Cloudinary using unsigned upload preset
  * @param localUri - Local file URI from expo-image-picker
@@ -92,63 +381,70 @@ export async function uploadMedia(
   type: ResourceType,
   onProgress?: (progress: number) => void
 ): Promise<CloudinaryResponse> {
-  // Get environment variables with multiple fallbacks
-  const cloudName = getEnvVar('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_CLOUD_NAME');
-  const uploadPreset = getEnvVar('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET');
   const folder = getEnvVar('EXPO_PUBLIC_CLOUDINARY_FOLDER', 'CLOUDINARY_UPLOAD_FOLDER') || 'forsa/media';
+  const signedConfig = await requestSignedUploadConfig(type, folder);
+  const FileSystem = await import('expo-file-system/legacy');
+  const fileInfo = await FileSystem.getInfoAsync(localUri);
+  const fileSize = fileInfo.exists && 'size' in fileInfo && typeof fileInfo.size === 'number'
+    ? fileInfo.size
+    : null;
 
+  let endpoint = signedConfig?.uploadUrl || '';
+  let uploadMode: 'signed' | 'unsigned' = 'signed';
+  let fallbackUploadPreset: string | undefined;
 
+  if (!signedConfig) {
+    const cloudName = getEnvVar('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_CLOUD_NAME');
+    const uploadPreset = getEnvVar('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET');
 
-  // Check if credentials are missing or empty
-  if (!cloudName || !cloudName.trim() || !uploadPreset || !uploadPreset.trim()) {
-    console.error('Cloudinary credentials not found or empty. Checked:', {
-      'process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME': process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME,
-      'process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET': process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
-      'getEnvVar result - cloudName': cloudName,
-      'getEnvVar result - uploadPreset': uploadPreset,
-      'Constants.expoConfig?.extra': Constants.expoConfig?.extra,
-    });
-    
-    throw new Error(
-      'Cloudinary credentials missing or empty.\n\n' +
-      'Please add to your .env file in the project root:\n' +
-      'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=your_actual_cloud_name\n' +
-      'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=your_actual_upload_preset\n' +
-      'EXPO_PUBLIC_CLOUDINARY_FOLDER=forsa/media (optional)\n\n' +
-      'Then restart your Expo development server with: npm start -- --clear'
-    );
+    if (!cloudName || !cloudName.trim() || !uploadPreset || !uploadPreset.trim()) {
+      console.error('Cloudinary credentials not found or empty. Checked:', {
+        'process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME': process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME,
+        'process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET': process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET,
+        'getEnvVar result - cloudName': cloudName,
+        'getEnvVar result - uploadPreset': uploadPreset,
+        'Constants.expoConfig?.extra': Constants.expoConfig?.extra,
+      });
+
+      throw new Error(
+        'Media upload is not configured correctly. The app could not get a signed upload config from the backend, and unsigned Cloudinary credentials are missing.\n\n' +
+        'Fix one of these paths:\n' +
+        '1. Start/configure the backend media route with Cloudinary server credentials, or\n' +
+        '2. Add valid EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME and EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET values to the app config.\n\n' +
+        'Then restart Expo with: npm start -- --clear'
+      );
+    }
+
+    const trimmedCloudName = cloudName.trim();
+    const trimmedUploadPreset = uploadPreset.trim();
+    fallbackUploadPreset = trimmedUploadPreset;
+
+    if (
+      trimmedCloudName.includes('your_cloud_name') ||
+      trimmedCloudName.includes('your_actual') ||
+      trimmedCloudName.includes('placeholder') ||
+      trimmedUploadPreset.includes('your_upload_preset') ||
+      trimmedUploadPreset.includes('your_actual') ||
+      trimmedUploadPreset.includes('placeholder')
+    ) {
+      throw new Error(
+        'Cloudinary credentials are still using placeholder values.\n\n' +
+        'Please replace the placeholder values in your .env file with your actual Cloudinary credentials:\n' +
+        `Current cloudName: "${trimmedCloudName}"\n` +
+        `Current uploadPreset: "${trimmedUploadPreset}"\n\n` +
+        'Steps to fix:\n' +
+        '1. Get your Cloudinary cloud name from https://console.cloudinary.com/\n' +
+        '2. Create an unsigned upload preset in Cloudinary Settings > Upload\n' +
+        '3. Update your .env file with the real values\n' +
+        '4. Restart Expo server with: npm start -- --clear'
+      );
+    }
+
+    endpoint = type === 'video'
+      ? `https://api.cloudinary.com/v1_1/${trimmedCloudName}/video/upload`
+      : `https://api.cloudinary.com/v1_1/${trimmedCloudName}/image/upload`;
+    uploadMode = 'unsigned';
   }
-
-  // Trim whitespace
-  const trimmedCloudName = cloudName.trim();
-  const trimmedUploadPreset = uploadPreset.trim();
-
-  // Check if placeholder values are still being used
-  if (
-    trimmedCloudName.includes('your_cloud_name') ||
-    trimmedCloudName.includes('your_actual') ||
-    trimmedCloudName.includes('placeholder') ||
-    trimmedUploadPreset.includes('your_upload_preset') ||
-    trimmedUploadPreset.includes('your_actual') ||
-    trimmedUploadPreset.includes('placeholder')
-  ) {
-    throw new Error(
-      'Cloudinary credentials are still using placeholder values.\n\n' +
-      'Please replace the placeholder values in your .env file with your actual Cloudinary credentials:\n' +
-      `Current cloudName: "${trimmedCloudName}"\n` +
-      `Current uploadPreset: "${trimmedUploadPreset}"\n\n` +
-      'Steps to fix:\n' +
-      '1. Get your Cloudinary cloud name from https://console.cloudinary.com/\n' +
-      '2. Create an unsigned upload preset in Cloudinary Settings > Upload\n' +
-      '3. Update your .env file with the real values\n' +
-      '4. Restart Expo server with: npm start -- --clear'
-    );
-  }
-
-  // Choose endpoint based on resource type (use trimmed values)
-  const endpoint = type === 'video' 
-    ? `https://api.cloudinary.com/v1_1/${trimmedCloudName}/video/upload`
-    : `https://api.cloudinary.com/v1_1/${trimmedCloudName}/image/upload`;
 
   // Create FormData
   const formData = new FormData();
@@ -168,82 +464,35 @@ export async function uploadMedia(
     name: filename,
   } as any);
 
-  formData.append('upload_preset', trimmedUploadPreset);
-  formData.append('folder', folder);
+  appendCloudinaryUploadParams(formData, signedConfig, folder, fallbackUploadPreset);
 
   try {
-    const timeoutMs = type === 'video' ? 600000 : 90000;
+    const shouldUseChunkedUpload = type === 'video'
+      && typeof fileSize === 'number'
+      && fileSize >= CLOUDINARY_CHUNKED_VIDEO_THRESHOLD_BYTES;
 
-    const data = await new Promise<CloudinaryResponse>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const timeoutId = setTimeout(() => {
-        try {
-          xhr.abort();
-        } catch {
-          // no-op
-        }
-      }, timeoutMs);
+    const data = shouldUseChunkedUpload
+      ? await uploadLargeVideoInChunks({
+          localUri,
+          endpoint,
+          filename,
+          mimeType,
+          fileSize: fileSize as number,
+          folder,
+          uploadMode,
+          signedConfig,
+          uploadPreset: fallbackUploadPreset,
+          onProgress,
+        })
+      : await performCloudinaryUploadRequest(
+          endpoint,
+          formData,
+          type === 'video' ? 600000 : 90000,
+          uploadMode,
+          onProgress
+        );
 
-      xhr.open('POST', endpoint);
-      xhr.responseType = 'text';
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && onProgress) {
-          const progress = Math.min(100, Math.max(0, Math.round((event.loaded / event.total) * 100)));
-          onProgress(progress);
-        }
-      };
-
-      xhr.onload = () => {
-        clearTimeout(timeoutId);
-
-        try {
-          const responseText = typeof xhr.response === 'string' ? xhr.response : xhr.responseText;
-          const parsed: CloudinaryResponse = JSON.parse(responseText || '{}');
-
-          if (xhr.status < 200 || xhr.status >= 300) {
-            let errorMessage = `Cloudinary upload failed: ${xhr.status} - ${responseText}`;
-
-            if (xhr.status === 401) {
-              errorMessage += '\n\nThis usually means:\n' +
-                '1. Your upload preset name is incorrect, OR\n' +
-                '2. Your upload preset is not set to "Unsigned" mode, OR\n' +
-                '3. Your cloud name is incorrect\n\n' +
-                'Please verify your Cloudinary credentials in the .env file and ensure:\n' +
-                '- The upload preset exists and is set to "Unsigned"\n' +
-                '- The cloud name matches your Cloudinary account\n' +
-                '- You have restarted the Expo server after updating .env';
-            }
-
-            reject(new Error(errorMessage));
-            return;
-          }
-
-          if ((parsed as any)?.error) {
-            reject(new Error(`Cloudinary error: ${(parsed as any).error.message || 'Unknown error'}`));
-            return;
-          }
-
-          onProgress?.(100);
-          resolve(parsed);
-        } catch (parseError: any) {
-          reject(new Error(parseError?.message || 'Failed to parse upload response'));
-        }
-      };
-
-      xhr.onerror = () => {
-        clearTimeout(timeoutId);
-        reject(new Error('Failed to upload media to Cloudinary. Please check your connection and try again.'));
-      };
-
-      xhr.onabort = () => {
-        clearTimeout(timeoutId);
-        reject(new Error('Upload timed out. Please try a smaller file or a stronger connection.'));
-      };
-
-      onProgress?.(1);
-      xhr.send(formData);
-    });
+    onProgress?.(100);
 
     return data;
   } catch (error: any) {

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 import { auth } from '../lib/firebase';
 import i18n from '../locales/i18n';
 import {
+  listMyNotifications,
   subscribeMyNotifications,
   markAsRead,
   markAllNotificationsAsRead,
@@ -41,21 +44,56 @@ const typeToColor: Record<NotificationType, string> = {
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [list, setList] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
 
-  useEffect(() => {
-    if (!auth.currentUser) {
+  const reloadNotifications = useCallback(async () => {
+    if (!user?.uid) {
+      setList([]);
       setLoading(false);
       return;
     }
-    const unsubscribe = subscribeMyNotifications((notifications) => {
+
+    try {
+      const notifications = await listMyNotifications(100, user.uid);
       setList(notifications);
+    } catch (error) {
+      console.error('Failed to reload notifications:', error);
+      Alert.alert(i18n.t('error') || 'Error', i18n.t('unableLoadNotifications') || 'Unable to load notifications right now.');
+    } finally {
       setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+      setRefreshing(false);
+    }
+  }, [user?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.uid) {
+        setList([]);
+        setLoading(false);
+        return () => {};
+      }
+
+      setLoading(true);
+      void reloadNotifications();
+
+      const unsubscribe = subscribeMyNotifications((notifications) => {
+        setList(notifications);
+        setLoading(false);
+        setRefreshing(false);
+      }, 100, user.uid);
+
+      return () => unsubscribe();
+    }, [reloadNotifications, user?.uid])
+  );
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void reloadNotifications();
+  }, [reloadNotifications]);
 
   const unreadCount = list.filter((item) => !item.read).length;
 
@@ -159,7 +197,7 @@ export default function NotificationsScreen() {
     );
   };
 
-  if (!auth.currentUser) {
+  if (!user?.uid) {
     return (
       <View style={styles.center}>
         <Text style={styles.emptyText}>{i18n.t('loginRequired') || 'Please log in'}</Text>
@@ -202,6 +240,7 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#007AFF" />}
         />
       )}
     </View>

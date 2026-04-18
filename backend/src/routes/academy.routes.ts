@@ -7,8 +7,7 @@ import {
   deleteAcademyProgram,
   getAcademyProgramsByAcademy,
 } from '../controllers/academy.controller';
-import { authenticate } from '../middleware/auth.middleware';
-import { requireRole } from '../middleware/auth.middleware';
+import { authenticate, requireRole } from '../middleware/auth.middleware';
 import { UserRole } from '../types';
 
 const router = Router();

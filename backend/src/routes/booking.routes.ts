@@ -4,13 +4,13 @@ import {
   getBookings,
   getBookingById,
   updateBookingStatus,
+  checkInBooking,
   cancelBooking,
   getProviderBookings,
   proposeBookingChange,
   respondToProposal,
 } from '../controllers/booking.controller';
-import { authenticate } from '../middleware/auth.middleware';
-import { requireRole } from '../middleware/auth.middleware';
+import { authenticate, authenticateJwtOrFirebase, requireRole } from '../middleware/auth.middleware';
 import { UserRole } from '../types';
 
 const router = Router();
@@ -57,7 +57,7 @@ const router = Router();
  *       201:
  *         description: Booking created successfully
  */
-router.post('/', authenticate, createBooking);
+router.post('/', authenticateJwtOrFirebase, createBooking);
 
 /**
  * @swagger
@@ -122,6 +122,37 @@ router.get('/provider', authenticate, getProviderBookings);
  *         description: Booking retrieved successfully
  */
 router.get('/:id', authenticate, getBookingById);
+
+/**
+ * @swagger
+ * /api/bookings/{id}/check-in:
+ *   post:
+ *     summary: Complete booking attendance and create backend revenue record
+ *     tags: [Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               note:
+ *                 type: string
+ *               checkInCode:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Booking check-in completed successfully
+ */
+router.post('/:id/check-in', authenticateJwtOrFirebase, checkInBooking);
 
 /**
  * @swagger

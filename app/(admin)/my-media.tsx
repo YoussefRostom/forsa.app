@@ -104,7 +104,7 @@ export default function AdminMyMediaScreen() {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
   const stats = useMemo(() => {
     const images = mediaList.filter((m) => m.resourceType === 'image').length;

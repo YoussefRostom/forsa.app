@@ -10,9 +10,17 @@ import {
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
+import { formatBookingPublicId } from '../lib/bookingId';
+import {
+  createBackendFeatureUnavailableError,
+  getBackendUrlCandidates,
+  rememberWorkingBackendUrl,
+} from '../lib/config';
 import { db } from '../lib/firebase';
-import { notifyAdmins } from './NotificationService';
+import { auth } from '../lib/firebase';
+import { notifyProviderAndAdmins } from './NotificationService';
 
 export type MonetizationEventSource = 'booking' | 'checkin';
 export type MonetizationStatus =
@@ -31,6 +39,12 @@ export type OfferingType = 'academy_group' | 'academy_private' | 'clinic_service
 export type MonetizationSettings = {
   currency: string;
   bookingCommission: {
+    enabled: boolean;
+    mode: 'percentage' | 'flat';
+    value: number;
+    minimumFee: number;
+  };
+  walkInCommission: {
     enabled: boolean;
     mode: 'percentage' | 'flat';
     value: number;
@@ -83,9 +97,33 @@ export type DashboardMetrics = {
   providerOptions: string[];
 };
 
+function isPermissionDeniedError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+
+  const code = 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+  const message = 'message' in error ? String((error as { message?: unknown }).message || '') : '';
+  return code === 'permission-denied' || /insufficient permissions|permission-denied/i.test(message);
+}
+
+function queueProviderPayoutSummaryRefresh(providerId?: string | null, actorId?: string) {
+  if (!providerId) return;
+
+  void refreshProviderPayoutSummary(providerId, actorId).catch((error) => {
+    if (!isPermissionDeniedError(error)) {
+      console.warn('[MonetizationService] Deferred payout summary refresh failed:', error);
+    }
+  });
+}
+
 const DEFAULT_SETTINGS: MonetizationSettings = {
   currency: 'EGP',
   bookingCommission: {
+    enabled: true,
+    mode: 'percentage',
+    value: 15,
+    minimumFee: 0,
+  },
+  walkInCommission: {
     enabled: true,
     mode: 'percentage',
     value: 15,
@@ -115,6 +153,15 @@ const asNumber = (value: unknown, fallback = 0) => {
 };
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+const formatDateAsLocalYMD = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const getLocalDateInput = (value: Date = new Date()): string => formatDateAsLocalYMD(value);
 
 const normalizeBookingStatus = (status?: string) => String(status || 'pending').toLowerCase();
 
@@ -206,6 +253,156 @@ const parseLooseDate = (value: any): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const normalizeBookingDateInput = (value: unknown): string | null => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const parsed = new Date(`${trimmed}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : trimmed;
+  }
+
+  const parsed = parseLooseDate(trimmed);
+  return parsed ? formatDateAsLocalYMD(parsed) : null;
+};
+
+function normalizeBookingForCreation(booking: any) {
+  const type = String(booking?.type || '').toLowerCase();
+  if (type !== 'academy' && type !== 'clinic') {
+    throw new Error('Booking type must be academy or clinic.');
+  }
+
+  const providerId = String(booking?.providerId || '').trim();
+  if (!providerId) {
+    throw new Error('Booking is missing a provider.');
+  }
+
+  const providerName = String(booking?.providerName || booking?.name || '').trim();
+  if (!providerName) {
+    throw new Error('Booking is missing a provider name.');
+  }
+
+  const customerId = [booking?.playerId, booking?.parentId, booking?.userId, booking?.academyId].find(
+    (value) => typeof value === 'string' && value.trim().length > 0
+  );
+  if (!customerId) {
+    throw new Error('Booking is missing a customer reference.');
+  }
+
+  const customerName = String(
+    booking?.customerName || booking?.playerName || booking?.parentName || booking?.academyName || ''
+  ).trim();
+  if (!customerName) {
+    throw new Error('Booking is missing a customer name.');
+  }
+
+  const date = normalizeBookingDateInput(booking?.date);
+  if (!date) {
+    throw new Error('Booking date is invalid.');
+  }
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const bookingDate = new Date(`${date}T00:00:00`);
+  if (bookingDate < startOfToday) {
+    throw new Error('Booking date cannot be in the past.');
+  }
+
+  const price = asNumber(booking?.price, NaN);
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error('Booking price is invalid.');
+  }
+
+  const createdAt =
+    typeof booking?.createdAt === 'string' && !Number.isNaN(new Date(booking.createdAt).getTime())
+      ? booking.createdAt
+      : new Date().toISOString();
+
+  const preferredTime =
+    typeof booking?.preferredTime === 'string' && !Number.isNaN(new Date(booking.preferredTime).getTime())
+      ? booking.preferredTime
+      : null;
+
+  const comments =
+    typeof booking?.comments === 'string' ? booking.comments.trim() || null : (booking?.comments ?? null);
+
+  return {
+    ...booking,
+    type,
+    status: 'pending',
+    providerId,
+    providerName,
+    customerName,
+    name: String(booking?.name || providerName).trim(),
+    date,
+    price: roundMoney(price),
+    createdAt,
+    preferredTime,
+    comments,
+  };
+}
+
+function buildBookingTransactionPayload(
+  bookingId: string,
+  booking: any,
+  settings: MonetizationSettings,
+  actorId?: string | null,
+  reason?: string,
+  existingTransaction?: any | null
+) {
+  const snapshot = buildBookingMonetizationSnapshot(booking, settings);
+  const nextPaymentStatus: CommissionPaymentStatus | null =
+    snapshot.status === 'earned' && snapshot.platformRevenueAmount > 0
+      ? (getCommissionPaymentStatus(existingTransaction) === 'paid' ? 'paid' : 'due')
+      : null;
+
+  return {
+    type: 'booking_commission',
+    revenueSource: 'booking' as MonetizationEventSource,
+    bookingId,
+    checkInId: null,
+    providerId: booking.providerId || null,
+    providerName: booking.providerName || booking.name || 'Unknown provider',
+    providerRole: booking.type || null,
+    customerId: booking.playerId || booking.parentId || booking.userId || booking.academyId || null,
+    customerName: booking.customerName || booking.playerName || booking.parentName || null,
+    createdBy: actorId || booking.playerId || booking.parentId || booking.userId || booking.academyId || booking.providerId || null,
+    notes: reason || null,
+    bookingStatus: normalizeBookingStatus(booking.status),
+    date: booking.date || null,
+    serviceName: booking.service || booking.program || booking.sessionType || 'Booking service',
+    commissionPercentage: settings.bookingCommission.mode === 'percentage' ? settings.bookingCommission.value : null,
+    attendanceVerifiedAt: booking.checkedInAt || booking.lastCheckInAt || null,
+    referenceCode: bookingId,
+    commissionPaymentStatus: nextPaymentStatus,
+    commissionPaidAt:
+      nextPaymentStatus === 'paid'
+        ? (existingTransaction?.commissionPaidAt || existingTransaction?.commissionCollectedAt || null)
+        : null,
+    commissionPaidBy:
+      nextPaymentStatus === 'paid'
+        ? (existingTransaction?.commissionPaidBy || existingTransaction?.commissionCollectedBy || null)
+        : null,
+    commissionCollectionStatus:
+      nextPaymentStatus === 'paid'
+        ? 'collected'
+        : nextPaymentStatus === 'due'
+          ? 'pending'
+          : 'not_applicable',
+    commissionCollectedAt:
+      nextPaymentStatus === 'paid'
+        ? (existingTransaction?.commissionCollectedAt || existingTransaction?.commissionPaidAt || null)
+        : null,
+    commissionCollectedBy:
+      nextPaymentStatus === 'paid'
+        ? (existingTransaction?.commissionCollectedBy || existingTransaction?.commissionPaidBy || null)
+        : null,
+    createdAt: existingTransaction?.createdAt || serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...snapshot,
+  };
+}
+
 export async function getMonetizationSettings(): Promise<MonetizationSettings> {
   try {
     const settingsRef = doc(db, 'settings', 'admin');
@@ -224,6 +421,20 @@ export async function getMonetizationSettings(): Promise<MonetizationSettings> {
         mode: raw.bookingCommission?.mode === 'flat' ? 'flat' : 'percentage',
         value: asNumber(raw.bookingCommission?.value, legacyCommission),
         minimumFee: asNumber(raw.bookingCommission?.minimumFee, 0),
+      },
+      walkInCommission: {
+        enabled: raw.walkInCommission?.enabled ?? raw.checkInCommission?.enabled ?? true,
+        mode:
+          raw.walkInCommission?.mode === 'flat'
+            ? 'flat'
+            : raw.checkInCommission?.mode === 'flat'
+              ? 'flat'
+              : 'percentage',
+        value: asNumber(
+          raw.walkInCommission?.value,
+          asNumber(raw.checkInCommission?.value, DEFAULT_SETTINGS.walkInCommission.value)
+        ),
+        minimumFee: asNumber(raw.walkInCommission?.minimumFee, 0),
       },
       checkInFee: {
         enabled: raw.checkInFee?.enabled ?? true,
@@ -263,6 +474,7 @@ export async function saveMonetizationSettings(partial: Partial<MonetizationSett
     ...current,
     ...partial,
     bookingCommission: { ...current.bookingCommission, ...(partial.bookingCommission || {}) },
+    walkInCommission: { ...current.walkInCommission, ...(partial.walkInCommission || {}) },
     checkInFee: { ...current.checkInFee, ...(partial.checkInFee || {}) },
     payouts: { ...current.payouts, ...(partial.payouts || {}) },
     abuse: { ...current.abuse, ...(partial.abuse || {}) },
@@ -274,6 +486,7 @@ export async function saveMonetizationSettings(partial: Partial<MonetizationSett
       currency: next.currency,
       commissionRate: next.bookingCommission.value,
       bookingCommission: next.bookingCommission,
+      walkInCommission: next.walkInCommission,
       checkInFee: next.checkInFee,
       payouts: next.payouts,
       abuse: next.abuse,
@@ -403,61 +616,12 @@ export async function upsertBookingTransaction(
 
   try {
     const settings = await getMonetizationSettings();
-    const snapshot = buildBookingMonetizationSnapshot(booking, settings);
     const transactionId = `booking_${bookingId}`;
     const existingTransactionSnap = await getDoc(doc(db, 'transactions', transactionId));
     const existingTransaction = existingTransactionSnap.exists() ? (existingTransactionSnap.data() as any) : null;
 
-    const nextPaymentStatus: CommissionPaymentStatus | null =
-      snapshot.status === 'earned' && snapshot.platformRevenueAmount > 0
-        ? (getCommissionPaymentStatus(existingTransaction) === 'paid' ? 'paid' : 'due')
-        : null;
-
-    const payload = {
-      type: 'booking_commission',
-      revenueSource: 'booking' as MonetizationEventSource,
-      bookingId,
-      checkInId: null,
-      providerId: booking.providerId || null,
-      providerName: booking.providerName || booking.name || 'Unknown provider',
-      providerRole: booking.type || null,
-      customerId: booking.playerId || booking.parentId || booking.userId || booking.academyId || null,
-      customerName: booking.customerName || booking.playerName || booking.parentName || null,
-      createdBy: actorId || booking.playerId || booking.parentId || booking.userId || booking.academyId || booking.providerId || null,
-      notes: reason || null,
-      bookingStatus: normalizeBookingStatus(booking.status),
-      date: booking.date || null,
-      serviceName: booking.service || booking.program || booking.sessionType || 'Booking service',
-      commissionPercentage: settings.bookingCommission.mode === 'percentage' ? settings.bookingCommission.value : null,
-      attendanceVerifiedAt: booking.checkedInAt || booking.lastCheckInAt || null,
-      referenceCode: bookingId,
-      commissionPaymentStatus: nextPaymentStatus,
-      commissionPaidAt:
-        nextPaymentStatus === 'paid'
-          ? (existingTransaction?.commissionPaidAt || existingTransaction?.commissionCollectedAt || null)
-          : null,
-      commissionPaidBy:
-        nextPaymentStatus === 'paid'
-          ? (existingTransaction?.commissionPaidBy || existingTransaction?.commissionCollectedBy || null)
-          : null,
-      commissionCollectionStatus:
-        nextPaymentStatus === 'paid'
-          ? 'collected'
-          : nextPaymentStatus === 'due'
-            ? 'pending'
-          : 'not_applicable',
-      commissionCollectedAt:
-        nextPaymentStatus === 'paid'
-          ? (existingTransaction?.commissionCollectedAt || existingTransaction?.commissionPaidAt || null)
-          : null,
-      commissionCollectedBy:
-        nextPaymentStatus === 'paid'
-          ? (existingTransaction?.commissionCollectedBy || existingTransaction?.commissionPaidBy || null)
-          : null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      ...snapshot,
-    };
+    const payload = buildBookingTransactionPayload(bookingId, booking, settings, actorId, reason, existingTransaction);
+    const snapshot = buildBookingMonetizationSnapshot(booking, settings);
 
     await setDoc(doc(db, 'transactions', transactionId), payload, { merge: true });
 
@@ -465,21 +629,29 @@ export async function upsertBookingTransaction(
     const isEarnedNow = String(snapshot.status || '').toLowerCase() === 'earned';
     if (!wasEarnedBefore && isEarnedNow && Number(snapshot.platformRevenueAmount || 0) > 0) {
       try {
-        await notifyAdmins(
-          'Commission pending collection',
-          `${payload.providerName || 'Provider'} generated ${snapshot.platformRevenueAmount} ${payload.currency || 'EGP'} booking commission after attendance check-in.`,
-          'booking',
-          {
-            transactionId,
-            bookingId,
-            providerId: payload.providerId || '',
-            providerName: payload.providerName || '',
-            platformRevenueAmount: snapshot.platformRevenueAmount,
-            currency: payload.currency || 'EGP',
-          }
-        );
+        if (payload.providerId) {
+          await notifyProviderAndAdmins(
+            payload.providerId,
+            'Commission due',
+            `${payload.providerName || 'Provider'} owes ${snapshot.platformRevenueAmount} ${payload.currency || 'EGP'} commission for ${payload.serviceName || 'service'} after attendance check-in.`,
+            'booking',
+            {
+              transactionId,
+              bookingId,
+              providerId: payload.providerId || '',
+              providerName: payload.providerName || '',
+              providerRole: String(payload.providerRole || ''),
+              serviceName: String(payload.serviceName || ''),
+              platformRevenueAmount: snapshot.platformRevenueAmount,
+              currency: payload.currency || 'EGP',
+            }
+          );
+        }
       } catch (notifyError) {
-        console.warn('[MonetizationService] Failed to notify admins about booking commission:', notifyError);
+        const message = notifyError instanceof Error ? notifyError.message : String(notifyError || '');
+        if (!/timed out|aborted/i.test(message)) {
+          console.warn('[MonetizationService] Failed to notify admins about booking commission:', notifyError);
+        }
       }
     }
 
@@ -488,6 +660,124 @@ export async function upsertBookingTransaction(
   } catch (error) {
     console.warn('[MonetizationService] Booking transaction sync skipped:', error);
     return null;
+  }
+}
+
+export async function createBookingWithTransaction(
+  booking: any,
+  actorId?: string | null,
+  reason?: string
+) {
+  const normalizedBooking = normalizeBookingForCreation(booking);
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('Must be authenticated to create booking');
+  }
+
+  const bookingRequestBody = JSON.stringify({
+    ...normalizedBooking,
+    reason: reason || null,
+  });
+
+  const candidateUrls = getBackendUrlCandidates();
+  if (candidateUrls.length === 0) {
+    throw createBackendFeatureUnavailableError('Booking requests');
+  }
+
+  const sendBookingRequest = async (backendUrl: string, idToken: string) => {
+    const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutHandle = abortController ? setTimeout(() => abortController.abort(), 25000) : null;
+
+    try {
+      const response = await fetch(`${backendUrl}/api/bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: bookingRequestBody,
+        signal: abortController?.signal,
+      });
+
+      return response;
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+  };
+
+  try {
+    let idToken = await user.getIdToken(true);
+    let lastError: Error | null = null;
+
+    for (const backendUrl of candidateUrls) {
+      try {
+        let response: Response | null = null;
+        let payload: any = {};
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            response = await sendBookingRequest(backendUrl, idToken);
+            payload = await response.json().catch(() => ({}));
+            break;
+          } catch (requestError: any) {
+            const message = requestError instanceof Error ? requestError.message : String(requestError || '');
+
+            if (requestError?.name === 'AbortError' || /network request failed|network request timed out|timed out|failed to fetch/i.test(message)) {
+              lastError = new Error(`Booking service unreachable at ${backendUrl}`);
+              if (attempt === 0) {
+                continue;
+              }
+            }
+
+            throw requestError;
+          }
+        }
+
+        if (!response) {
+          continue;
+        }
+
+        if (
+          response.status === 401 &&
+          /invalid or expired token/i.test(String(payload?.error?.message || payload?.message || ''))
+        ) {
+          await user.reload();
+          idToken = await user.getIdToken(true);
+          response = await sendBookingRequest(backendUrl, idToken);
+          payload = await response.json().catch(() => ({}));
+        }
+
+        if (!response.ok) {
+          throw new Error(payload?.error?.message || payload?.message || 'Failed to create booking');
+        }
+
+        rememberWorkingBackendUrl(backendUrl);
+        return payload?.data || null;
+      } catch (error: any) {
+        if (error?.name === 'AbortError') {
+          lastError = new Error(`Booking service timed out at ${backendUrl}`);
+          continue;
+        }
+
+        const message = error instanceof Error ? error.message : String(error || '');
+        if (/network request failed|network request timed out|timed out|failed to fetch/i.test(message)) {
+          lastError = new Error(`Booking service unreachable at ${backendUrl}`);
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    throw lastError || new Error('Failed to create booking');
+  } catch (error: any) {
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error('Booking service unreachable');
   }
 }
 
@@ -512,12 +802,22 @@ async function findRelatedBookingForCheckIn(userId: string, providerId: string) 
   }
 }
 
-async function hasChargeableCheckInForKey(abuseKey: string) {
+async function hasChargeableCheckInForKey(abuseKey: string, providerId?: string | null) {
   try {
-    const snap = await getDocs(query(collection(db, 'transactions'), where('abuseKey', '==', abuseKey)));
+    if (!providerId) {
+      return false;
+    }
+
+    const snap = await getDocs(
+      query(
+        collection(db, 'transactions'),
+        where('providerId', '==', providerId),
+        where('abuseKey', '==', abuseKey)
+      )
+    );
     return snap.docs.some((docSnap) => {
       const data = docSnap.data();
-      return data.revenueSource === 'checkin' && !['voided', 'cancelled', 'refunded'].includes(String(data.status || ''));
+      return data.revenueSource === 'checkin' && !['voided', 'cancelled', 'refunded'].includes(String(data.status || '').toLowerCase());
     });
   } catch (error) {
     console.warn('[MonetizationService] Failed to inspect abuse key:', error);
@@ -570,7 +870,7 @@ export async function registerCheckInMonetization(
   // Daily duplicate-charge protection should only apply to booking-attendance records.
   // Walk-in services are explicit paid services selected by staff and can occur multiple times per day.
   const applyDailyDuplicateGuard = Boolean(relatedBooking);
-  const alreadyCharged = applyDailyDuplicateGuard ? await hasChargeableCheckInForKey(abuseKey) : false;
+  const alreadyCharged = applyDailyDuplicateGuard ? await hasChargeableCheckInForKey(abuseKey, checkIn.locationId) : false;
   const status: MonetizationStatus = alreadyCharged ? 'voided' : 'earned';
   const payoutStatus: PayoutStatus = alreadyCharged ? 'held' : 'pending';
 
@@ -581,13 +881,12 @@ export async function registerCheckInMonetization(
     : status === 'earned'
       ? walkInCommissionAmount
       : 0;
-  const providerNetAmount = status === 'earned' ? roundMoney(Math.max(grossAmount - platformRevenueAmount, 0)) : grossAmount;
+  const providerNetAmount = status === 'earned' ? roundMoney(Math.max(grossAmount - platformRevenueAmount, 0)) : 0;
 
   const payload = {
     type: relatedBooking ? 'checkin_attendance' : 'walkin_commission',
     revenueSource: 'checkin' as MonetizationEventSource,
     source: relatedBooking ? 'in_app_booking' : 'walkin_offline',
-    bookingId: relatedBooking?.id || null,
     checkInId,
     providerId: checkIn.locationId || null,
     providerName: checkIn.locationName || relatedBooking?.providerName || 'Unknown provider',
@@ -630,25 +929,37 @@ export async function registerCheckInMonetization(
         : 'Walk-in service commission captured from scanner input.',
   };
 
-  await setDoc(doc(db, 'transactions', `checkin_${checkInId}`), payload, { merge: true });
+  const persistedPayload = relatedBooking?.id
+    ? { ...payload, bookingId: relatedBooking.id }
+    : payload;
+
+  await setDoc(doc(db, 'transactions', `checkin_${checkInId}`), persistedPayload, { merge: true });
 
   if (status === 'earned' && platformRevenueAmount > 0) {
     try {
-      await notifyAdmins(
-        'Commission pending collection',
-        `${payload.providerName || 'Provider'} generated ${platformRevenueAmount} ${payload.currency || 'EGP'} commission from ${payload.walkInServiceName || 'a check-in service'}. Mark it collected when received.`,
-        'checkin',
-        {
-          transactionId: `checkin_${checkInId}`,
-          checkInId,
-          providerId: payload.providerId || '',
-          providerName: payload.providerName || '',
-          platformRevenueAmount,
-          currency: payload.currency || 'EGP',
-        }
-      );
+      if (persistedPayload.providerId) {
+        await notifyProviderAndAdmins(
+          persistedPayload.providerId,
+          'Commission due',
+          `${persistedPayload.providerName || 'Provider'} owes ${platformRevenueAmount} ${persistedPayload.currency || 'EGP'} commission for ${persistedPayload.walkInServiceName || persistedPayload.serviceName || 'a check-in service'}. Mark it collected when received.`,
+          'checkin',
+          {
+            transactionId: `checkin_${checkInId}`,
+            checkInId,
+            providerId: persistedPayload.providerId || '',
+            providerName: persistedPayload.providerName || '',
+            providerRole: String(persistedPayload.providerRole || ''),
+            serviceName: String(persistedPayload.walkInServiceName || persistedPayload.serviceName || ''),
+            platformRevenueAmount,
+            currency: persistedPayload.currency || 'EGP',
+          }
+        );
+      }
     } catch (notifyError) {
-      console.warn('[MonetizationService] Failed to notify admins about pending commission:', notifyError);
+      const message = notifyError instanceof Error ? notifyError.message : String(notifyError || '');
+      if (!/timed out|aborted/i.test(message)) {
+        console.warn('[MonetizationService] Failed to notify admins about pending commission:', notifyError);
+      }
     }
   }
 
@@ -679,8 +990,8 @@ export async function registerCheckInMonetization(
     }
   }
 
-  await refreshProviderPayoutSummary(checkIn.locationId, actorId || undefined);
-  return { id: `checkin_${checkInId}`, ...payload };
+  queueProviderPayoutSummaryRefresh(checkIn.locationId, actorId || undefined);
+  return { id: `checkin_${checkInId}`, ...persistedPayload };
 }
 
 export async function refreshProviderPayoutSummary(providerId?: string | null, actorId?: string) {
@@ -717,7 +1028,9 @@ export async function refreshProviderPayoutSummary(providerId?: string | null, a
     await setDoc(doc(db, 'payouts', `summary_${providerId}`), summary, { merge: true });
     return summary;
   } catch (error) {
-    console.error('[MonetizationService] Failed to refresh payout summary:', error);
+    if (!isPermissionDeniedError(error)) {
+      console.error('[MonetizationService] Failed to refresh payout summary:', error);
+    }
     return null;
   }
 }
@@ -800,6 +1113,39 @@ export async function markCommissionAsCollected(transactionId: string, actorId?:
   });
 
   return { id: transactionId, commissionCollectionStatus: 'collected' };
+}
+
+export async function backfillVoidedCheckInProviderNet(actorId?: string | null) {
+  const txSnap = await getDocs(collection(db, 'transactions'));
+  let updatedCount = 0;
+  const touchedProviders = new Set<string>();
+
+  await Promise.all(
+    txSnap.docs.map(async (docSnap) => {
+      const tx = docSnap.data() as any;
+      const source = String(tx?.revenueSource || '').toLowerCase();
+      const status = String(tx?.status || '').toLowerCase();
+      const providerNet = asNumber(tx?.providerNetAmount, 0);
+
+      if (source !== 'checkin') return;
+      if (!['voided', 'cancelled', 'refunded'].includes(status)) return;
+      if (providerNet === 0) return;
+
+      await updateDoc(doc(db, 'transactions', docSnap.id), {
+        providerNetAmount: 0,
+        updatedAt: serverTimestamp(),
+        notes: 'Backfill: corrected non-earned check-in provider net to 0.',
+        updatedBy: actorId || null,
+      });
+
+      updatedCount += 1;
+      if (tx?.providerId) touchedProviders.add(String(tx.providerId));
+    })
+  );
+
+  await Promise.all(Array.from(touchedProviders).map((providerId) => refreshProviderPayoutSummary(providerId, actorId || undefined)));
+
+  return { updatedCount, affectedProviders: touchedProviders.size };
 }
 
 export async function getMonetizationDashboardData(filters: DashboardFilters = {}): Promise<DashboardMetrics> {

@@ -4,7 +4,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
@@ -18,7 +18,7 @@ const ClinicEditTimetableScreen = () => {
   const [timePicker, setTimePicker] = useState<{visible: boolean, mode: 'from' | 'to', day: string | null}>({visible: false, mode: 'from', day: null});
   const [tempTime, setTempTime] = useState(new Date());
   const { openMenu } = useHamburgerMenu();
-  const [loading, setLoading] = useState(true);
+  const [loading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {

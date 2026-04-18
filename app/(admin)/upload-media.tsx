@@ -51,7 +51,7 @@ export default function AdminUploadMediaScreen() {
       }
     };
     checkAccess();
-  }, []);
+  }, [router]);
 
   const handleAddMedia = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -89,7 +89,7 @@ export default function AdminUploadMediaScreen() {
     }
 
     setUploading(true);
-    const uploadResults: Array<{ success: boolean; error?: string }> = [];
+    const uploadResults: { success: boolean; error?: string }[] = [];
 
     try {
       for (let i = 0; i < media.length; i++) {

@@ -17,6 +17,7 @@ import {
 import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, query, getDocs, where, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { isAdmin } from '../../services/ModerationService';
 
 const resolveDisplayName = (user: any) => {
   const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
@@ -34,7 +35,6 @@ const resolveDisplayName = (user: any) => {
     'Unknown User'
   );
 };
-import { isAdmin } from '../../services/ModerationService';
 
 interface MediaItem {
   id: string;
@@ -139,8 +139,8 @@ export default function AdminAllMediaScreen() {
             try {
               const uDoc = await getDoc(doc(db, 'users', uid));
               if (uDoc.exists()) userMap[uid] = uDoc.data();
-            } catch (err) {
-              console.warn(`Failed to fetch user ${uid}:`, err);
+            } catch {
+              console.warn(`Failed to fetch user ${uid}.`);
             }
           })
         );
@@ -164,7 +164,7 @@ export default function AdminAllMediaScreen() {
                 const postSnap = await getDocs(postQuery);
                 if (!postSnap.empty) postContent = postSnap.docs[0].data().content || '';
               }
-            } catch (_err) {}
+            } catch {}
 
             return {
               ...m,
@@ -185,7 +185,7 @@ export default function AdminAllMediaScreen() {
     );
 
     return () => unsubscribe();
-  }, []);
+  }, [router]);
 
   const stats = useMemo(() => {
     const images = mediaList.filter((m) => m.resourceType === 'image').length;

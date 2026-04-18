@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -30,58 +30,62 @@ export default function MyQrCodeScreen() {
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
-    loadQRCode();
-  }, []);
+    let isActive = true;
 
-  const loadQRCode = async () => {
-    try {
-      setLoading(true);
-      
-      // Get current user's check-in code
-      let code = await getCurrentUserCheckInCode();
-      
-      // If no code exists, generate one (for player/parent roles)
-      if (!code) {
-        setGenerating(true);
-        try {
-          code = await ensureCheckInCodeForCurrentUser();
-        } catch (error: any) {
-          console.error('Error generating check-in code:', error);
-          Alert.alert(i18n.t('error') || 'Error', i18n.t('checkInFailedTryAgain') || 'Failed to process check-in. Please try again.');
-          router.back();
-          return;
-        } finally {
-          setGenerating(false);
-        }
-      }
-      
-      setCheckInCode(code);
-      
-      // Get user name
-      const user = auth.currentUser;
-      if (user) {
-        const userRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userRef);
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          if (userData.firstName && userData.lastName) {
-            setUserName(`${userData.firstName} ${userData.lastName}`);
-          } else if (userData.firstName || userData.lastName) {
-            setUserName(userData.firstName || userData.lastName);
-          } else if (userData.parentName) {
-            setUserName(userData.parentName);
-          } else if (userData.email) {
-            setUserName(userData.email.split('@')[0]);
+    void (async () => {
+      try {
+        setLoading(true);
+
+        // Get current user's check-in code
+        let code = await getCurrentUserCheckInCode();
+
+        // If no code exists, generate one (for player/parent roles)
+        if (!code) {
+          if (isActive) setGenerating(true);
+          try {
+            code = await ensureCheckInCodeForCurrentUser();
+          } catch (error: any) {
+            console.error('Error generating check-in code:', error);
+            Alert.alert(i18n.t('error') || 'Error', i18n.t('checkInFailedTryAgain') || 'Failed to process check-in. Please try again.');
+            router.back();
+            return;
+          } finally {
+            if (isActive) setGenerating(false);
           }
         }
+
+        if (!isActive) return;
+        setCheckInCode(code);
+
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const userRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userRef);
+        if (!userDoc.exists() || !isActive) return;
+
+        const userData = userDoc.data();
+        if (userData.firstName && userData.lastName) {
+          setUserName(`${userData.firstName} ${userData.lastName}`);
+        } else if (userData.firstName || userData.lastName) {
+          setUserName(userData.firstName || userData.lastName);
+        } else if (userData.parentName) {
+          setUserName(userData.parentName);
+        } else if (userData.email) {
+          setUserName(userData.email.split('@')[0]);
+        }
+      } catch (error: any) {
+        console.error('Error loading QR code:', error);
+        Alert.alert(i18n.t('error') || 'Error', i18n.t('qrCodeUnavailable') || 'QR code not available');
+      } finally {
+        if (isActive) setLoading(false);
       }
-    } catch (error: any) {
-      console.error('Error loading QR code:', error);
-      Alert.alert(i18n.t('error') || 'Error', i18n.t('qrCodeUnavailable') || 'QR code not available');
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [router]);
 
   const copyCode = async () => {
     if (checkInCode) {

@@ -83,7 +83,7 @@ const SignupAgent = () => {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const validateField = (field: keyof Errors, value: string) => {
     let error: string | null = null;
@@ -353,7 +353,8 @@ const SignupAgent = () => {
           <ScrollView
             ref={scrollViewRef}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
             {formError && (
@@ -931,11 +932,6 @@ const styles = StyleSheet.create({
   inputWrapperFocused: {
     borderColor: '#111827',
     backgroundColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
   },
   inputWrapperError: {
     borderColor: '#ff3b30',

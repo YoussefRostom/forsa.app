@@ -1,15 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import {
   applyBookingCommissionToUpcomingTransactions,
+  backfillVoidedCheckInProviderNet,
   getMonetizationDashboardData,
   getMonetizationSettings,
   markCommissionAsCollected,
   saveMonetizationSettings,
 } from '../../services/MonetizationService';
+import { createNotificationsLocallyForUsers, getClinicAndAcademyUserIds } from '../../services/NotificationService';
 
 const C = {
   bg: '#f0f4f8',
@@ -50,6 +51,7 @@ export default function AdminMoneyScreen() {
   const [bookingCommission, setBookingCommission] = useState('15');
   const [walkInCommission, setWalkInCommission] = useState('15');
   const [savingSettings, setSavingSettings] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     void fetchData();
@@ -68,7 +70,7 @@ export default function AdminMoneyScreen() {
       const rawAdmin = adminDoc.exists() ? (adminDoc.data() as any) : null;
 
       setBookingCommission(String(settings.bookingCommission?.value ?? 15));
-      setWalkInCommission(String(rawAdmin?.checkInCommission?.value ?? settings.bookingCommission?.value ?? 15));
+      setWalkInCommission(String(settings.walkInCommission?.value ?? rawAdmin?.walkInCommission?.value ?? rawAdmin?.checkInCommission?.value ?? 15));
 
       const tx = txSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -138,13 +140,24 @@ export default function AdminMoneyScreen() {
           ...current.bookingCommission,
           value: bookingValue,
         },
+        walkInCommission: {
+          ...current.walkInCommission,
+          value: walkInValue,
+          mode: 'percentage',
+        },
         checkInFee: current.checkInFee,
         payouts: current.payouts,
         abuse: current.abuse,
       });
 
-      // Keep legacy keys expected by current scanner flow for walk-in commission.
+      // Keep legacy keys alongside the new dedicated walk-in commission key.
       await setDoc(doc(db, 'settings', 'admin'), {
+        walkInCommission: {
+          enabled: true,
+          mode: 'percentage',
+          value: walkInValue,
+          minimumFee: 0,
+        },
         checkInCommission: {
           enabled: true,
           mode: 'percentage',
@@ -156,9 +169,25 @@ export default function AdminMoneyScreen() {
 
       const reprice = await applyBookingCommissionToUpcomingTransactions(next.bookingCommission, auth.currentUser?.uid);
 
+      const providerUserIds = await getClinicAndAcademyUserIds();
+      if (providerUserIds.length > 0) {
+        await createNotificationsLocallyForUsers(
+          providerUserIds,
+          'Commission settings updated',
+          `Admin updated commission rates. Booking commission is now ${bookingValue}% and walk-in commission is now ${walkInValue}%. These new rates apply to future bookings and walk-ins.`,
+          'system',
+          {
+            notificationKind: 'commission_settings',
+            bookingCommission: bookingValue,
+            walkInCommission: walkInValue,
+            route: '/notifications',
+          }
+        );
+      }
+
       Alert.alert(
         'Saved',
-        `Commission settings updated. ${reprice.updatedCount} upcoming booking record(s) were refreshed. Confirmed, paid, and recent records were not changed.`
+        `Commission settings updated. ${reprice.updatedCount} upcoming booking record(s) were refreshed. Future walk-ins will use the new walk-in commission percentage.`
       );
       await fetchData();
     } catch (error) {
@@ -166,6 +195,23 @@ export default function AdminMoneyScreen() {
       Alert.alert('Error', 'Failed to save commission settings.');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleBackfillVoidedProviderNet = async () => {
+    try {
+      setBackfilling(true);
+      const result = await backfillVoidedCheckInProviderNet(auth.currentUser?.uid);
+      Alert.alert(
+        'Backfill complete',
+        `${result.updatedCount} historical check-in transaction(s) corrected across ${result.affectedProviders} provider(s).`
+      );
+      await fetchData();
+    } catch (error) {
+      console.error('Failed to backfill historical check-in provider net:', error);
+      Alert.alert('Error', 'Failed to run historical backfill.');
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -235,7 +281,19 @@ export default function AdminMoneyScreen() {
           <TouchableOpacity style={S.saveBtn} onPress={handleSaveCommissionSettings} disabled={savingSettings}>
             {savingSettings ? <ActivityIndicator color="#fff" size="small" /> : <Text style={S.saveBtnText}>Save Commission Settings</Text>}
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[S.saveBtn, { backgroundColor: C.amber, marginTop: 8 }]}
+            onPress={handleBackfillVoidedProviderNet}
+            disabled={backfilling}
+          >
+            {backfilling ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={S.saveBtnText}>Backfill Historical Voided Net</Text>
+            )}
+          </TouchableOpacity>
           <Text style={[S.legendLine, { marginTop: 8 }]}>Updating booking commission refreshes upcoming booking records only. Confirmed, paid, and recent records are locked.</Text>
+          <Text style={S.legendLine}>Backfill only affects old check-in records with status voided/cancelled/refunded that incorrectly still have provider net amount.</Text>
         </View>
       </View>
 

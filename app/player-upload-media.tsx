@@ -351,7 +351,7 @@ export default function PlayerUploadMediaScreen() {
       return next;
     });
 
-    const uploadResults: Array<{ success: boolean; error?: string }> = [];
+    const uploadResults: { success: boolean; error?: string }[] = [];
     const startedAt = Date.now();
 
     try {

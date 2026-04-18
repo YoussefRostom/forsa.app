@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -10,27 +9,7 @@ import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { writeEmailIndex } from '../lib/emailIndex';
 import { writePhoneIndex } from '../lib/phoneIndex';
-import { normalizePhoneForAuth } from '../lib/validations';
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Easing,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  useWindowDimensions,
-} from 'react-native';
-import { uploadMedia } from '../services/MediaService';
-import {
+import { normalizePhoneForAuth ,
   validateAddress,
   validateCity,
   validateEmail,
@@ -39,8 +18,29 @@ import {
   validateRequired,
   normalizePhoneForTwilio
 } from '../lib/validations';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import { uploadMedia } from '../services/MediaService';
+
 import i18n from '../locales/i18n';
-import { getBackendUrl } from '../lib/config';
+import { buildBookingBranchPayload, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
 
 const LOCATION_PICKER_RESULT_KEY = 'academySignupLocationPickerResult';
 const EXTRA_LOCATION_PICKER_RESULT_KEY = 'academySignupExtraLocationPickerResult';
@@ -57,7 +57,7 @@ type AcademyBranchLocation = {
   longitude?: number | null;
 };
 
-const districtsByCity: Record<string, Array<{ key: string; label: string }>> = {
+const districtsByCity: Record<string, { key: string; label: string }[]> = {
   cairo: [
     { key: 'Maadi', label: 'Maadi' },
     { key: 'Nasr City', label: 'Nasr City' },
@@ -92,8 +92,6 @@ const districtsByCity: Record<string, Array<{ key: string; label: string }>> = {
 const SignupAcademy = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { width: screenWidth } = useWindowDimensions();
-  const isNarrow = screenWidth < 380;
 
   const parseCoordinateValue = (value: string): number | null => {
     const normalized = value.trim().replace(/,/g, '.');
@@ -151,7 +149,6 @@ const SignupAcademy = () => {
   const [longitudeInput, setLongitudeInput] = useState((params.longitude as string) || '');
   const [locationAutofillLoading, setLocationAutofillLoading] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [fees, setFees] = useState<{ [age: string]: string }>(() => {
     try {
       return params.fees ? JSON.parse(params.fees as string) : {};
@@ -167,13 +164,28 @@ const SignupAcademy = () => {
   const [extraLocations, setExtraLocations] = useState<AcademyBranchLocation[]>([]);
   const [mainLocationSaved, setMainLocationSaved] = useState(false);
   const [savedLocationIds, setSavedLocationIds] = useState<string[]>([]);
-  const [privateTrainings, setPrivateTrainings] = useState<Array<{
+  const [privateTrainings, setPrivateTrainings] = useState<{
     coachName: string; privateTrainingPrice: string; coachBio: string;
     specializations: string; sessionDuration: string; availability: string;
-  }>>([{ coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '' }]);
+    branchId: string; branchName: string; branchAddress: string;
+  }[]>([{ coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '', branchId: '', branchName: '', branchAddress: '' }]);
   const [privateTrainingEnabled, setPrivateTrainingEnabled] = useState(false);
   const [bulkFeeValue, setBulkFeeValue] = useState('');
   const [draftReady, setDraftReady] = useState(false);
+
+  const academyBranchOptions = normalizeBookingBranches([
+    {
+      id: 'main-branch',
+      label: i18n.t('mainLocationLabel') || 'Main branch',
+      city,
+      district,
+      address,
+      mapUrl,
+      latitude: latitudeInput ? Number(latitudeInput) : null,
+      longitude: longitudeInput ? Number(longitudeInput) : null,
+    },
+    ...extraLocations,
+  ]);
 
   useEffect(() => {
     const loadDraft = async () => {
@@ -369,7 +381,7 @@ const SignupAcademy = () => {
       return () => {
         active = false;
       };
-    }, [city, draftReady])
+    }, [draftReady])
   );
 
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
@@ -378,7 +390,7 @@ const SignupAcademy = () => {
     setPrivateTrainings(prev => prev.map((t, i) => i === index ? { ...t, [field]: value } : t));
   };
   const addTraining = () => {
-    setPrivateTrainings(prev => [...prev, { coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '' }]);
+    setPrivateTrainings(prev => [...prev, { coachName: '', privateTrainingPrice: '', coachBio: '', specializations: '', sessionDuration: '60', availability: '', branchId: '', branchName: '', branchAddress: '' }]);
   };
   const removeTraining = (index: number) => {
     setPrivateTrainings(prev => prev.filter((_, i) => i !== index));
@@ -439,34 +451,6 @@ const SignupAcademy = () => {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9\u0600-\u06FF]+/gi, '');
-
-  const normalizeCityKey = (value: string) => normalizeLookupValue(value);
-  const findCityKeyFromValue = (value?: string) => {
-    const normalized = normalizeCityKey(value || '');
-    if (!normalized) return '';
-
-    if (
-      normalized.includes('giza') ||
-      normalized.includes('newcairo') ||
-      normalized.includes('الجيزة') ||
-      normalized.includes('القاهرةالجديدة')
-    ) {
-      return 'cairo';
-    }
-
-    const matched = cityOptions.find((option) => {
-      const keyNormalized = normalizeCityKey(option.key);
-      const labelNormalized = normalizeCityKey(String(option.label));
-      return (
-        normalized === keyNormalized ||
-        normalized === labelNormalized ||
-        normalized.includes(labelNormalized) ||
-        labelNormalized.includes(normalized)
-      );
-    });
-
-    return matched?.key || '';
-  };
 
   const districtAliasesByCity: Record<string, Record<string, string>> = {
     cairo: {
@@ -548,13 +532,6 @@ const SignupAcademy = () => {
   };
 
   const ageGroups = Array.from({ length: 10 }, (_, i) => (7 + i).toString());
-  const renderAgeRows = () => {
-    const rows = [];
-    for (let i = 0; i < ageGroups.length; i += 3) {
-      rows.push(ageGroups.slice(i, i + 3));
-    }
-    return rows;
-  };
 
   React.useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -563,7 +540,7 @@ const SignupAcademy = () => {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
 
   // Image picker for profile photo
@@ -585,6 +562,8 @@ const SignupAcademy = () => {
     if (normalizedDistrict !== district) {
       setDistrict(normalizedDistrict);
     }
+  // normalizeDistrictValue is intentionally derived inline from current city options.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [city, district]);
 
   const handleBack = () => router.back();
@@ -918,6 +897,7 @@ const SignupAcademy = () => {
 
       const academyLocations = [
         {
+          id: 'main-branch',
           label: i18n.t('mainLocationLabel') || 'Main location',
           city,
           district,
@@ -931,6 +911,7 @@ const SignupAcademy = () => {
               : null,
         },
         ...extraLocations.map((location) => ({
+          id: location.id,
           label: location.label,
           city: location.city,
           district: location.district || '',
@@ -980,6 +961,7 @@ const SignupAcademy = () => {
       for (const training of privateTrainings) {
         if (training.coachName && training.privateTrainingPrice) {
           try {
+            const selectedBranch = academyBranchOptions.find((branch) => branch.id === training.branchId) || null;
             const programData = {
               academyId: uid,
               name: 'Private Training',
@@ -992,6 +974,13 @@ const SignupAcademy = () => {
               maxParticipants: 1,
               duration: parseInt(training.sessionDuration) || 60,
               availability: training.availability ? { general: training.availability } : null,
+              ...buildBookingBranchPayload(
+                selectedBranch || {
+                  id: training.branchId,
+                  name: training.branchName,
+                  address: training.branchAddress,
+                }
+              ),
               isActive: true,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -1069,11 +1058,13 @@ const SignupAcademy = () => {
             </View>
           </View>
 
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator={false}
+            >
             {formError && (
               <View style={styles.errorContainer}>
                 <Ionicons name="alert-circle" size={16} color="#ff3b30" />
@@ -1936,6 +1927,33 @@ const SignupAcademy = () => {
                       />
                     </View>
                   </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>{i18n.t('trainerBranch') || 'Trainer Branch'}</Text>
+                    {academyBranchOptions.length > 0 ? (
+                      <View style={styles.branchChoiceList}>
+                        {academyBranchOptions.map((branch) => {
+                          const isSelected = training.branchId === branch.id;
+                          return (
+                            <TouchableOpacity
+                              key={branch.id}
+                              style={[styles.branchChoiceButton, isSelected && styles.branchChoiceButtonSelected]}
+                              onPress={() => {
+                                const payload = buildBookingBranchPayload(branch);
+                                updateTraining(index, 'branchId', payload.branchId || '');
+                                updateTraining(index, 'branchName', payload.branchName || '');
+                                updateTraining(index, 'branchAddress', payload.branchAddress || '');
+                              }}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={[styles.branchChoiceText, isSelected && styles.branchChoiceTextSelected]}>{getBranchSummary(branch)}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <Text style={styles.branchChoiceHint}>{i18n.t('addBranchesFirst') || 'Add academy branches first to assign private trainers.'}</Text>
+                    )}
+                  </View>
                 </View>
               ))}
 
@@ -2010,7 +2028,8 @@ const SignupAcademy = () => {
                 </TouchableOpacity>
               </View>
             </View>
-          </ScrollView>
+            </ScrollView>
+          </TouchableWithoutFeedback>
         </Animated.View>
       </LinearGradient>
     </KeyboardAvoidingView>
@@ -2536,6 +2555,35 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 20,
   },
+  branchChoiceList: {
+    gap: 8,
+  },
+  branchChoiceButton: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+  },
+  branchChoiceButtonSelected: {
+    borderColor: '#111827',
+    backgroundColor: '#f3f4f6',
+  },
+  branchChoiceText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  branchChoiceTextSelected: {
+    color: '#111827',
+  },
+  branchChoiceHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
   label: {
     fontSize: 16,
     fontWeight: '600',
@@ -2555,13 +2603,6 @@ const styles = StyleSheet.create({
   inputWrapperError: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
-  },
-  inputDisabled: {
-    backgroundColor: '#f0f0f0',
-    borderColor: '#e5e7eb',
-  },
-  disabledText: {
-    color: '#666',
   },
   inputDisabled: {
     backgroundColor: '#f0f0f0',
@@ -2765,58 +2806,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
-  additionalLocationTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  additionalLocationText: {
-    fontSize: 13,
-    color: '#4b5563',
-    lineHeight: 18,
-  },
-  addLocationButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 12,
-    backgroundColor: '#eef2f7',
-    paddingVertical: 11,
-    paddingHorizontal: 14,
-    marginTop: 10,
-  },
-  addLocationButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  emptyInfoBox: {
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyInfoText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-  },
-  additionalLocationsList: {
-    gap: 8,
-    marginTop: 10,
-  },
-  additionalLocationCard: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  additionalLocationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
+  branchRemoveButton: {
+    padding: 4,
+    marginLeft: 8,
   },
   additionalLocationTitle: {
     fontSize: 14,

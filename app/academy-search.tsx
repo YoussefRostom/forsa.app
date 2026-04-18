@@ -99,10 +99,6 @@ const getAcademyLocationCandidates = (academy: any): Coordinates[] => {
   );
 };
 
-const getAcademyCoordinates = (academy: any): Coordinates | null => {
-  return getAcademyLocationCandidates(academy)[0] || null;
-};
-
 const getCityLabel = (value?: string) => {
   if (!value) return '';
   const normalizedValue = normalizeCityKey(value);
@@ -214,7 +210,7 @@ export default function AcademySearchScreen() {
   const [sortModal, setSortModal] = useState(false);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
   const [distanceMap, setDistanceMap] = useState<Record<string, number>>({});
-  const [locationLoading, setLocationLoading] = useState(false);
+  const [, setLocationLoading] = useState(false);
   const [academies, setAcademies] = useState<Academy[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -334,7 +330,7 @@ export default function AcademySearchScreen() {
       return [academy.id, nearestDistance] as const;
     });
 
-    setDistanceMap(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, number]>));
+    setDistanceMap(Object.fromEntries(entries.filter(Boolean) as (readonly [string, number])[]));
   };
 
   const handleSortSelection = async (sortKey: string) => {

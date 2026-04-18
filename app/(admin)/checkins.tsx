@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -36,9 +36,24 @@ export default function AdminCheckInsScreen() {
   const [isUserAdmin, setIsUserAdmin] = useState(false);
   const router = useRouter();
 
+  const checkAdminAccess = useCallback(async () => {
+    try {
+      const admin = await isAdmin();
+      setIsUserAdmin(admin);
+      if (!admin) {
+        Alert.alert('Access Denied', 'You must be an admin to access this screen.');
+        router.back();
+      }
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      Alert.alert('Error', 'Failed to verify permissions');
+      router.back();
+    }
+  }, [router]);
+
   useEffect(() => {
     checkAdminAccess();
-  }, []);
+  }, [checkAdminAccess]);
 
   useEffect(() => {
     if (!isUserAdmin) return;
@@ -57,21 +72,6 @@ export default function AdminCheckInsScreen() {
     return () => unsubscribe();
   }, [todayOnly, locationFilter, isUserAdmin]);
 
-  const checkAdminAccess = async () => {
-    try {
-      const admin = await isAdmin();
-      setIsUserAdmin(admin);
-      if (!admin) {
-        Alert.alert('Access Denied', 'You must be an admin to access this screen.');
-        router.back();
-      }
-    } catch (error) {
-      console.error('Error checking admin status:', error);
-      Alert.alert('Error', 'Failed to verify permissions');
-      router.back();
-    }
-  };
-
   const formatDate = (timestamp: unknown) =>
     formatTimestamp(timestamp, { withTime: true, fallback: 'Unknown' });
 
@@ -84,6 +84,9 @@ export default function AdminCheckInsScreen() {
   const renderItem = ({ item }: { item: CheckIn }) => {
     const isAcademy = item.locationRole === 'academy';
     const accent = isAcademy ? C.blue : C.green;
+    const walkInServiceLabel = String(item.meta?.walkInServiceName || '').trim();
+    const privateTrainerName = String(item.meta?.walkInPrivateTrainerName || '').trim();
+    const ageGroup = String(item.meta?.walkInAgeGroup || '').trim();
 
     return (
       <View style={S.card}>
@@ -122,6 +125,16 @@ export default function AdminCheckInsScreen() {
             <Ionicons name="qr-code-outline" size={15} color={C.subtext} />
             <Text style={S.codeText}>{item.userCheckInCode}</Text>
           </View>
+          {(walkInServiceLabel || privateTrainerName || ageGroup) && (
+            <View style={S.detailRow}>
+              <Ionicons name="briefcase-outline" size={15} color={C.subtext} />
+              <Text style={S.detailText}>
+                {walkInServiceLabel || 'Walk-in service'}
+                {privateTrainerName ? ` • Coach: ${privateTrainerName}` : ''}
+                {ageGroup ? ` • U${ageGroup}` : ''}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     );

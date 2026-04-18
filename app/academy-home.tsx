@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import React from 'react';
 import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import i18n from '../locales/i18n';
@@ -12,7 +11,6 @@ const dummyFeed = [
 ];
 
 export default function AcademyHomeScreen({ navigation }: any) {
-  const router = useRouter();
   const { visible, openMenu, closeMenu } = useHamburgerMenu();
 
   return (

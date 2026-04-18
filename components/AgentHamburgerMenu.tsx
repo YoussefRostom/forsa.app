@@ -6,7 +6,7 @@ import i18n from '../locales/i18n';
 interface AgentHamburgerMenuProps {
   visible: boolean;
   onClose: () => void;
-  extraOptions?: Array<{ label: string; route: string }>;
+  extraOptions?: { label: string; route: string }[];
 }
 
 const AgentHamburgerMenu: React.FC<AgentHamburgerMenuProps> = ({ visible, onClose, extraOptions = [] }) => {

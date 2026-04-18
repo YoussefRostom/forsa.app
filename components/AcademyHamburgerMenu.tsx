@@ -7,15 +7,15 @@ interface AcademyHamburgerMenuProps {
   visible: boolean;
   onClose: () => void;
 }
+interface AcademyMenuOption {
+  label: string;
+  route: string;
+  special?: boolean;
+}
 
 const AcademyHamburgerMenu: React.FC<AcademyHamburgerMenuProps> = ({ visible, onClose }) => {
   const router = useRouter();
-  const options = [
-    {
-      label: i18n.t('academyAssistance') || 'Assistance & Extras',
-      route: '/academy-services',
-      special: true,
-    },
+  const options: AcademyMenuOption[] = [
     { label: i18n.t('academyFeed') || 'Academy Feed', route: '/academy-feed' },
     { label: i18n.t('scanCheckIn') || 'Scan Check-in', route: '/scan-checkin' },
     { label: i18n.t('academyEditProfile') || 'Edit Profile', route: '/academy-edit-profile' },

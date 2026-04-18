@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
+import { formatBookingBranch } from '../lib/bookingBranch';
+import { getBookingPublicId } from '../lib/bookingId';
 import i18n from '../locales/i18n';
 import { getBookingStatusMeta } from '../lib/bookingStatus';
 import { notifyBookingStatusChange } from '../lib/bookingNotifications';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import { findAdminUserId } from '../services/MessagingService';
 import { upsertBookingTransaction } from '../services/MonetizationService';
@@ -23,17 +25,22 @@ export default function ParentBookingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ id: string; type: 'cancel' | 'accept' | 'reject' } | null>(null);
+  const [openingAdminChat, setOpeningAdminChat] = useState(false);
 
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 600,
-      easing: Easing.out(Easing.exp),
-      useNativeDriver: true,
-    }).start();
+  const normalizeBooking = (booking: any) => {
+    const bookingType = booking?.type || booking?.bookingType || (booking?.service ? 'clinic' : 'academy');
+    const providerName = booking?.name || booking?.providerName || booking?.academyName || booking?.clinicName || 'Provider';
+    const programName = booking?.program || (booking?.sessionType === 'private' ? 'Private Training' : null);
 
-    fetchBookings();
-  }, []);
+    return {
+      ...booking,
+      type: bookingType,
+      bookingType,
+      name: providerName,
+      providerName,
+      program: programName,
+    };
+  };
 
   const getBookingSortTime = (booking: any): number => {
     const source = booking?.updatedAt ?? booking?.createdAt;
@@ -46,7 +53,7 @@ export default function ParentBookingsScreen() {
     return Number.isNaN(parsed) ? 0 : parsed;
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     try {
       const user = auth.currentUser;
       if (!user) {
@@ -54,16 +61,21 @@ export default function ParentBookingsScreen() {
         return;
       }
 
-      const q = query(
-        collection(db, 'bookings'),
-        where('parentId', '==', user.uid)
-      );
+      const bookingQueries = [
+        query(collection(db, 'bookings'), where('parentId', '==', user.uid)),
+        query(collection(db, 'bookings'), where('userId', '==', user.uid)),
+      ];
 
-      const querySnapshot = await getDocs(q);
-      const bookingsList: any[] = [];
-      querySnapshot.forEach((doc) => {
-        bookingsList.push({ id: doc.id, ...doc.data() });
+      const snapshots = await Promise.all(bookingQueries.map((bookingQuery) => getDocs(bookingQuery)));
+      const bookingMap = new Map<string, any>();
+
+      snapshots.forEach((snapshot) => {
+        snapshot.forEach((docSnapshot) => {
+          bookingMap.set(docSnapshot.id, normalizeBooking({ id: docSnapshot.id, ...docSnapshot.data() }));
+        });
       });
+
+      const bookingsList = Array.from(bookingMap.values());
 
       bookingsList.sort((a, b) => getBookingSortTime(b) - getBookingSortTime(a));
 
@@ -75,7 +87,49 @@ export default function ParentBookingsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      easing: Easing.out(Easing.exp),
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim, fetchBookings]);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setBookings([]);
+      setLoading(false);
+      setRefreshing(false);
+      return () => {};
+    }
+
+    const bookingsQueries = [
+      query(collection(db, 'bookings'), where('parentId', '==', user.uid)),
+      query(collection(db, 'bookings'), where('userId', '==', user.uid)),
+    ];
+
+    const unsubscribes = bookingsQueries.map((bookingsQuery) =>
+      onSnapshot(
+        bookingsQuery,
+        () => {
+          void fetchBookings();
+        },
+        (error) => {
+          console.error('Error subscribing to parent bookings:', error);
+          setLoading(false);
+          setRefreshing(false);
+        }
+      )
+    );
+
+    return () => {
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [fetchBookings]);
 
   const runBookingAction = async (
     bookingId: string,
@@ -139,10 +193,10 @@ export default function ParentBookingsScreen() {
     );
   };
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchBookings();
-  };
+    void fetchBookings();
+  }, [fetchBookings]);
 
   const handleAcceptTiming = async (bookingId: string) => {
     const success = await runBookingAction(bookingId, 'confirmed', i18n.t('timingAcceptedSuccess') || 'Timing accepted successfully', 'accept');
@@ -166,9 +220,35 @@ export default function ParentBookingsScreen() {
     await runBookingAction(bookingId, 'cancelled', i18n.t('timingRejectedSuccess') || 'Timing rejected successfully', 'reject');
   };
 
+  const openAdminChat = async () => {
+    if (openingAdminChat) return;
+
+    try {
+      setOpeningAdminChat(true);
+      const adminId = await findAdminUserId();
+      if (!adminId) {
+        Alert.alert('Error', 'No admin found');
+        return;
+      }
+      const conversationId = await startConversationWithUser(adminId);
+      router.push({
+        pathname: '/parent-chat',
+        params: {
+          conversationId,
+          otherUserId: adminId,
+          contact: 'Admin'
+        }
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to start conversation');
+    } finally {
+      setOpeningAdminChat(false);
+    }
+  };
+
   const filteredBookings = filter === 'all'
     ? bookings
-    : bookings.filter(b => b.type === filter);
+    : bookings.filter(b => (b.type || b.bookingType) === filter);
 
   const getStatusMeta = (status: string) => getBookingStatusMeta(status, i18n);
 
@@ -260,6 +340,17 @@ export default function ParentBookingsScreen() {
                       ) : null}
                     </View>
                   </View>
+
+                  <View style={styles.bookingIdBadge}>
+                    <Text style={styles.bookingIdText}>{i18n.t('bookingId') || 'Booking ID'}: {getBookingPublicId(item)}</Text>
+                  </View>
+
+                  {formatBookingBranch(item) ? (
+                    <View style={styles.infoRow}>
+                      <Ionicons name="location-outline" size={16} color="#666" />
+                      <Text style={styles.infoText}>{i18n.t('branch') || 'Branch'}: {formatBookingBranch(item)}</Text>
+                    </View>
+                  ) : null}
 
                   <View style={styles.cardBody}>
                     {item.type === 'clinic' ? (
@@ -365,60 +456,32 @@ export default function ParentBookingsScreen() {
 
                   {(item.status === 'new_time_proposed' || item.status === 'timing_proposed') && (
                     <TouchableOpacity
-                      style={styles.chatButton}
-                      onPress={async () => {
-                        try {
-                          const adminId = await findAdminUserId();
-                          if (!adminId) {
-                            Alert.alert('Error', 'No admin found');
-                            return;
-                          }
-                          const conversationId = await startConversationWithUser(adminId);
-                          router.push({
-                            pathname: '/parent-chat',
-                            params: {
-                              conversationId,
-                              otherUserId: adminId,
-                              contact: 'Admin'
-                            }
-                          });
-                        } catch (error: any) {
-                          Alert.alert('Error', error.message || 'Failed to start conversation');
-                        }
-                      }}
+                      style={[styles.chatButton, { opacity: openingAdminChat ? 0.6 : 1 }]}
+                      onPress={openAdminChat}
+                      disabled={openingAdminChat}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="chatbubbles" size={18} color="#fff" />
-                      <Text style={[styles.chatButtonText, {color: '#fff', marginLeft: 8}]}>{i18n.t('chatToAdmin') || 'Chat to Admin'}</Text>
+                      {openingAdminChat ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Ionicons name="chatbubbles" size={18} color="#fff" />
+                      )}
+                      <Text style={[styles.chatButtonText, {color: '#fff', marginLeft: 8}]}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('chatToAdmin') || 'Chat to Admin')}</Text>
                     </TouchableOpacity>
                   )}
                   
                   <TouchableOpacity
-                    style={styles.chatButton}
-                    onPress={async () => {
-                      try {
-                        const adminId = await findAdminUserId();
-                        if (!adminId) {
-                          Alert.alert('Error', 'No admin found');
-                          return;
-                        }
-                        const conversationId = await startConversationWithUser(adminId);
-                        router.push({
-                          pathname: '/parent-chat',
-                          params: {
-                            conversationId,
-                            otherUserId: adminId,
-                            contact: 'Admin'
-                          }
-                        });
-                      } catch (error: any) {
-                        Alert.alert('Error', error.message || 'Failed to start conversation');
-                      }
-                    }}
+                    style={[styles.chatButton, { opacity: openingAdminChat ? 0.6 : 1 }]}
+                    onPress={openAdminChat}
+                    disabled={openingAdminChat}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="chatbubbles" size={18} color="#fff" />
-                    <Text style={[styles.chatButtonText, {color: '#fff', marginLeft: 8}]}>{i18n.t('chatToAdmin') || 'Chat to Admin'}</Text>
+                    {openingAdminChat ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="chatbubbles" size={18} color="#fff" />
+                    )}
+                    <Text style={[styles.chatButtonText, {color: '#fff', marginLeft: 8}]}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('chatToAdmin') || 'Chat to Admin')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -549,6 +612,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 6,
+  },
+  bookingIdBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#eef2ff',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 14,
+  },
+  bookingIdText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    color: '#1e3a8a',
   },
   statusBadge: {
     flexDirection: 'row',

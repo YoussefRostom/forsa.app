@@ -6,15 +6,14 @@ import i18n from '../locales/i18n';
 
 export default function SignupPrivateTrainer() {
   const router = useRouter();
-  const [language, setLanguage] = useState(i18n.locale);
+  const [language] = useState(i18n.locale);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [city, setCity] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [profileImage, setProfileImage] = useState(null);
-  const [verificationImage, setVerificationImage] = useState(null);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [cityModalVisible, setCityModalVisible] = useState(false);
 
@@ -24,7 +23,7 @@ export default function SignupPrivateTrainer() {
       : ['Cairo', 'Alexandria', 'Giza', 'Mansoura', 'Assiut', 'Tanta', 'Zagazig', 'Damietta', 'Suez', 'Luxor', 'Aswan', 'Port Said', 'Ismailia', 'Arish', 'Sharm El-Sheikh', 'Hurghada']
   ][0];
 
-  const pickImage = async (setter) => {
+  const pickImage = async (setter: React.Dispatch<React.SetStateAction<string | null>>) => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,

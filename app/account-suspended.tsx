@@ -29,7 +29,7 @@ export default function AccountSuspendedScreen() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-    } catch (e) {
+    } catch {
       // continue
     }
   };

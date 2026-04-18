@@ -1,11 +1,12 @@
-import rateLimit from 'express-rate-limit';
+import expressRateLimit from 'express-rate-limit';
 
 const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10); // 15 minutes default
-const maxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10);
+const maxRequests = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '2000', 10);
 
-export const generalRateLimiter = rateLimit({
+export const generalRateLimiter = expressRateLimit({
   windowMs,
   max: maxRequests,
+  skip: (req) => req.path === '/health',
   message: {
     success: false,
     error: {
@@ -17,7 +18,7 @@ export const generalRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-export const authRateLimiter = rateLimit({
+export const authRateLimiter = expressRateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // 5 requests per window
   message: {
@@ -29,7 +30,7 @@ export const authRateLimiter = rateLimit({
   },
 });
 
-export const uploadRateLimiter = rateLimit({
+export const uploadRateLimiter = expressRateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10, // 10 uploads per hour
   message: {

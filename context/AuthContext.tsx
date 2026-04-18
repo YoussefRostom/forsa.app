@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut, type User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { isExpectedNetworkError } from '../lib/networkErrors';
 import { captureAppException } from '../services/CrashReportingService';
 
 type Role = 'user' | 'admin' | 'player' | 'parent' | 'agent' | 'academy' | 'clinic';
@@ -26,13 +27,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const VALID_ROLES: Role[] = ['user', 'admin', 'player', 'parent', 'agent', 'academy', 'clinic'];
+
+function normalizeRole(value: unknown): Role {
+  const normalized = String(value || '').toLowerCase();
+  return VALID_ROLES.includes(normalized as Role) ? (normalized as Role) : 'user';
+}
+
 const buildUserFromFirebase = async (firebaseUser: FirebaseUser): Promise<User> => {
   const fallbackName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User';
 
   try {
+    await firebaseUser.getIdToken(true);
     const userSnap = await getDoc(doc(db, 'users', firebaseUser.uid));
     const userData = userSnap.exists() ? userSnap.data() : {};
-    const role = String(userData?.role || 'user').toLowerCase() as Role;
+    const role = normalizeRole(userData?.role);
     const fullName = [userData?.firstName, userData?.lastName].filter(Boolean).join(' ').trim();
 
     return {
@@ -53,8 +62,13 @@ const buildUserFromFirebase = async (firebaseUser: FirebaseUser): Promise<User> 
       isSuspended: userData?.isSuspended === true,
     };
   } catch (error) {
-    console.error('[AuthContext] Failed to sync user profile:', error);
-    captureAppException(error, { source: 'AuthContext.buildUserFromFirebase' });
+    if (isExpectedNetworkError(error)) {
+      console.warn('[AuthContext] Unable to sync user profile while offline.');
+    } else {
+      console.error('[AuthContext] Failed to sync user profile:', error);
+      captureAppException(error, { source: 'AuthContext.buildUserFromFirebase' });
+    }
+
     return {
       id: firebaseUser.uid,
       uid: firebaseUser.uid,
@@ -112,20 +126,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (_email: string, fallbackRole: Role = 'user') => {
-    if (auth.currentUser) {
-      await refreshUser();
-      return;
+    if (!VALID_ROLES.includes(fallbackRole)) {
+      throw new Error(`Unsupported role: ${fallbackRole}`);
     }
 
-    setUser((prev) => prev ?? {
-      id: _email,
-      uid: _email,
-      name: _email.split('@')[0] || 'User',
-      email: _email,
-      role: fallbackRole,
-      status: null,
-      isSuspended: false,
-    });
+    if (!auth.currentUser) {
+      throw new Error('Cannot create an app session without a Firebase user.');
+    }
+
+    await refreshUser();
   };
 
   const logout = async () => {

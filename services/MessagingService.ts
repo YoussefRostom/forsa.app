@@ -7,17 +7,16 @@ import {
   where, 
   orderBy, 
   limit,
+  limitToLast,
   addDoc,
   setDoc,
   updateDoc,
   onSnapshot,
   serverTimestamp,
-  Timestamp,
-  QuerySnapshot,
-  DocumentSnapshot
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
-import { createNotification } from './NotificationService';
+import { isTransientNotificationDispatchError } from './NotificationService';
+import { sendPushNotificationsToUsers } from './PushNotificationService';
 
 export interface Message {
   id: string;
@@ -39,6 +38,8 @@ export interface Conversation {
   participant2Name?: string;
   participant1Photo?: string;
   participant2Photo?: string;
+  participant1Role?: string;
+  participant2Role?: string;
   lastMessage?: string;
   lastMessageAt?: any;
   lastMessageSenderId?: string;
@@ -50,6 +51,48 @@ export interface Conversation {
   otherParticipantRole?: string;
 }
 
+const inFlightConversationRequests = new Map<string, Promise<string>>();
+const unreadCountCache = new Map<string, { value: number; fetchedAt: number }>();
+const UNREAD_COUNT_CACHE_MS = 15000;
+const LIVE_MESSAGES_WINDOW_SIZE = 150;
+const readReceiptInFlight = new Set<string>();
+const userPreviewCache = new Map<string, { fetchedAt: number; profile: { name: string; photo?: string; role?: string } }>();
+let currentUserChatProfileCache:
+  | { userId: string; fetchedAt: number; profile: { name: string; photo: string | null; role: string | null } }
+  | null = null;
+const CHAT_PROFILE_CACHE_MS = 60000;
+
+async function getUserPreview(userId?: string): Promise<{ name: string; photo?: string; role?: string } | null> {
+  if (!userId) {
+    return null;
+  }
+
+  const now = Date.now();
+  const cached = userPreviewCache.get(userId);
+  if (cached && now - cached.fetchedAt < CHAT_PROFILE_CACHE_MS) {
+    return cached.profile;
+  }
+
+  try {
+    const userSnap = await getDoc(doc(db, 'users', userId));
+    if (!userSnap.exists()) {
+      return null;
+    }
+
+    const userData = userSnap.data();
+    const profile = {
+      name: resolveUserDisplayName(userData),
+      photo: userData?.profilePhoto || userData?.photoURL || userData?.profileImage || userData?.image || userData?.photo || undefined,
+      role: String(userData?.role || '').trim() || undefined,
+    };
+
+    userPreviewCache.set(userId, { fetchedAt: now, profile });
+    return profile;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Generate a consistent conversation ID from two user IDs
  * Ensures the same conversation ID regardless of which user initiates
@@ -58,6 +101,223 @@ function getConversationId(userId1: string, userId2: string): string {
   // Sort IDs to ensure consistency
   const sorted = [userId1, userId2].sort();
   return `${sorted[0]}_${sorted[1]}`;
+}
+
+function resolveUserDisplayName(userData: any): string {
+  return userData.firstName && userData.lastName
+    ? `${userData.firstName} ${userData.lastName}`
+    : userData.firstName || userData.lastName || userData.email || userData.phone || 'Unknown';
+}
+
+function resolveAuthDisplayName(currentUser: typeof auth.currentUser): string {
+  return currentUser?.displayName?.trim() || currentUser?.email?.split('@')[0] || 'Unknown';
+}
+
+function getImmediateCurrentUserChatProfile() {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('User must be authenticated');
+  }
+
+  if (currentUserChatProfileCache?.userId === currentUser.uid) {
+    return currentUserChatProfileCache.profile;
+  }
+
+  return {
+    name: resolveAuthDisplayName(currentUser),
+    photo: currentUser.photoURL || null,
+    role: null,
+  };
+}
+
+async function getCurrentUserChatProfile() {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('User must be authenticated');
+  }
+
+  const now = Date.now();
+  if (
+    currentUserChatProfileCache &&
+    currentUserChatProfileCache.userId === currentUser.uid &&
+    now - currentUserChatProfileCache.fetchedAt < CHAT_PROFILE_CACHE_MS
+  ) {
+    return currentUserChatProfileCache.profile;
+  }
+
+  try {
+    const currentUserSnap = await getDoc(doc(db, 'users', currentUser.uid));
+    const userData = currentUserSnap.exists() ? currentUserSnap.data() : null;
+    const profile = {
+      name: userData ? resolveUserDisplayName(userData) : resolveAuthDisplayName(currentUser),
+      photo: userData?.profilePhoto || currentUser.photoURL || null,
+      role: String(userData?.role || '').trim() || null,
+    };
+    currentUserChatProfileCache = {
+      userId: currentUser.uid,
+      fetchedAt: now,
+      profile,
+    };
+    return profile;
+  } catch {
+    const profile = {
+      name: resolveAuthDisplayName(currentUser),
+      photo: currentUser.photoURL || null,
+      role: null,
+    };
+    currentUserChatProfileCache = {
+      userId: currentUser.uid,
+      fetchedAt: now,
+      profile,
+    };
+    return profile;
+  }
+}
+
+export function warmCurrentUserChatProfile(): void {
+  void getCurrentUserChatProfile().catch(() => {
+    // Ignore background warm-up failures; send path has a synchronous fallback.
+  });
+}
+
+function applyConversationParticipantPreview(conversation: Conversation): Conversation {
+  const currentUserId = auth.currentUser?.uid;
+  if (!currentUserId) {
+    return conversation;
+  }
+
+  const otherIsParticipant1 = conversation.participant1Id === conversation.otherParticipantId;
+  const fallbackName = otherIsParticipant1 ? conversation.participant1Name : conversation.participant2Name;
+  const fallbackPhoto = otherIsParticipant1 ? conversation.participant1Photo : conversation.participant2Photo;
+  const fallbackRole = otherIsParticipant1 ? conversation.participant1Role : conversation.participant2Role;
+
+  if (!conversation.otherParticipantName && fallbackName) {
+    conversation.otherParticipantName = fallbackName;
+  }
+  if (!conversation.otherParticipantPhoto && fallbackPhoto) {
+    conversation.otherParticipantPhoto = fallbackPhoto;
+  }
+  if (!conversation.otherParticipantRole && fallbackRole) {
+    conversation.otherParticipantRole = fallbackRole;
+  }
+
+  return conversation;
+}
+
+function getTimestampMillis(value: any): number {
+  if (!value) return 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value?.toDate === 'function') return value.toDate().getTime();
+  if (typeof value?.seconds === 'number') return value.seconds * 1000;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function shouldHydrateConversationPreview(conversation: Conversation): boolean {
+  return (!conversation.lastMessage && !conversation.lastMessageAt)
+    || !conversation.otherParticipantName
+    || !conversation.otherParticipantPhoto;
+}
+
+async function getUnreadCountForConversation(
+  conversationId: string,
+  currentUserId: string,
+  forceRefresh: boolean = false
+): Promise<number> {
+  const cached = unreadCountCache.get(conversationId);
+  const now = Date.now();
+
+  if (!forceRefresh && cached && now - cached.fetchedAt < UNREAD_COUNT_CACHE_MS) {
+    return cached.value;
+  }
+
+  try {
+    const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+    const unreadQuery = query(messagesRef, where('isRead', '==', false));
+    const unreadSnap = await getDocs(unreadQuery);
+    const unreadCount = unreadSnap.docs.filter((docSnap) => docSnap.data().senderId !== currentUserId).length;
+    unreadCountCache.set(conversationId, { value: unreadCount, fetchedAt: now });
+    return unreadCount;
+  } catch (error) {
+    console.error('Error calculating unread count:', error);
+    return 0;
+  }
+}
+
+async function enrichConversation(
+  conversation: Conversation,
+  currentUserId: string,
+  forceUnreadRefresh: boolean = false
+): Promise<Conversation> {
+  applyConversationParticipantPreview(conversation);
+
+  if (shouldHydrateConversationPreview(conversation)) {
+    await hydrateConversationPreview(conversation);
+  }
+
+  if ((!conversation.otherParticipantName || !conversation.otherParticipantPhoto || !conversation.otherParticipantRole) && conversation.otherParticipantId) {
+    const profile = await getUserPreview(conversation.otherParticipantId);
+    if (profile) {
+      conversation.otherParticipantName = conversation.otherParticipantName || profile.name;
+      conversation.otherParticipantPhoto = conversation.otherParticipantPhoto || profile.photo;
+      conversation.otherParticipantRole = conversation.otherParticipantRole || profile.role;
+    }
+  }
+
+  conversation.unreadCount = await getUnreadCountForConversation(
+    conversation.id,
+    currentUserId,
+    forceUnreadRefresh
+  );
+
+  return conversation;
+}
+
+async function hydrateConversationPreview(conversation: Conversation): Promise<Conversation> {
+  try {
+    const recentMessagesQuery = query(
+      collection(db, 'conversations', conversation.id, 'messages'),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+    const recentMessagesSnap = await getDocs(recentMessagesQuery);
+    if (recentMessagesSnap.empty) {
+      return conversation;
+    }
+
+    const recentMessages = recentMessagesSnap.docs.map((docSnap) => docSnap.data());
+    const latestMessageData = recentMessages[0];
+    const latestMessageText = String(latestMessageData.content || '').trim() || (latestMessageData.mediaUrl ? 'Media' : '');
+    const latestMessageAt = latestMessageData.createdAt || conversation.lastMessageAt || conversation.createdAt;
+    const latestMessageAtMs = getTimestampMillis(latestMessageAt);
+    const currentPreviewAtMs = getTimestampMillis(conversation.lastMessageAt || conversation.createdAt);
+
+    if (!conversation.lastMessage || latestMessageAtMs >= currentPreviewAtMs) {
+      conversation.lastMessage = latestMessageText;
+      conversation.lastMessageAt = latestMessageAt;
+      conversation.lastMessageSenderId = latestMessageData.senderId || conversation.lastMessageSenderId;
+
+      if (latestMessageData.senderId === conversation.otherParticipantId) {
+        conversation.otherParticipantName = latestMessageData.senderName || conversation.otherParticipantName;
+        conversation.otherParticipantPhoto = latestMessageData.senderPhoto || conversation.otherParticipantPhoto;
+      }
+    }
+
+    if (!conversation.otherParticipantName || !conversation.otherParticipantPhoto) {
+      const latestMessageFromOtherUser = recentMessages.find(
+        (messageData) => messageData.senderId === conversation.otherParticipantId
+      );
+
+      if (latestMessageFromOtherUser) {
+        conversation.otherParticipantName = latestMessageFromOtherUser.senderName || conversation.otherParticipantName;
+        conversation.otherParticipantPhoto = latestMessageFromOtherUser.senderPhoto || conversation.otherParticipantPhoto;
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to hydrate conversation preview:', error);
+  }
+
+  return applyConversationParticipantPreview(conversation);
 }
 
 /**
@@ -72,8 +332,14 @@ export async function getOrCreateConversation(
   }
 
   const conversationId = getConversationId(currentUser.uid, otherUserId);
-  
-  try {
+  const existingRequest = inFlightConversationRequests.get(conversationId);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = (async () => {
+    const currentProfile = await getCurrentUserChatProfile();
+
     const conversationRef = doc(db, 'conversations', conversationId);
     const conversationSnap = await getDoc(conversationRef);
 
@@ -92,14 +358,28 @@ export async function getOrCreateConversation(
     await setDoc(doc(db, 'conversations', conversationId), {
       participant1Id,
       participant2Id,
+      participant1Name: participant1Id === currentUser.uid ? currentProfile.name : null,
+      participant1Photo: participant1Id === currentUser.uid ? currentProfile.photo : null,
+      participant1Role: participant1Id === currentUser.uid ? currentProfile.role : null,
+      participant2Name: participant2Id === currentUser.uid ? currentProfile.name : null,
+      participant2Photo: participant2Id === currentUser.uid ? currentProfile.photo : null,
+      participant2Role: participant2Id === currentUser.uid ? currentProfile.role : null,
       createdAt: serverTimestamp(),
       lastMessageAt: null,
     });
 
     return conversationId;
+  })();
+
+  inFlightConversationRequests.set(conversationId, request);
+
+  try {
+    return await request;
   } catch (error: any) {
     console.error('Error getting/creating conversation:', error);
     throw error;
+  } finally {
+    inFlightConversationRequests.delete(conversationId);
   }
 }
 
@@ -140,11 +420,17 @@ export async function sendMessage(
   }
 
   try {
-    // Add message to messages subcollection
+    const trimmedContent = content.trim();
+    const currentProfile = getImmediateCurrentUserChatProfile();
+    warmCurrentUserChatProfile();
     const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+    const conversationRef = doc(db, 'conversations', conversationId);
+    const [participant1Id, participant2Id] = conversationId.split('_');
     const messageData: any = {
       senderId: currentUser.uid,
-      content: content.trim() || '',
+      content: trimmedContent || '',
+      senderName: currentProfile.name,
+      senderPhoto: currentProfile.photo,
       isRead: false,
       createdAt: serverTimestamp(),
     };
@@ -156,53 +442,87 @@ export async function sendMessage(
     const messageRef = await addDoc(messagesRef, messageData);
     const messageId = messageRef.id;
 
-    // Update conversation with last message info
-    const conversationRef = doc(db, 'conversations', conversationId);
-    await updateDoc(conversationRef, {
-      lastMessage: content.trim() || (mediaUrl ? 'Media' : ''),
+    const conversationUpdates: any = {
+      lastMessage: trimmedContent || (mediaUrl ? 'Media' : ''),
       lastMessageAt: serverTimestamp(),
       lastMessageSenderId: currentUser.uid,
-    });
+    };
 
-    // Notify the message recipient for all roles (admin, player, parent, academy, clinic, agent).
-    // This drives both notifications list screens and push delivery.
-    try {
-      const parts = conversationId.split('_');
-      const otherUserId = parts[0] === currentUser.uid ? parts[1] : parts[0];
+    const fallbackConversationData = {
+      participant1Id,
+      participant2Id,
+      createdAt: serverTimestamp(),
+      participant1Name: participant1Id === currentUser.uid ? currentProfile.name : null,
+      participant1Photo: participant1Id === currentUser.uid ? currentProfile.photo : null,
+      participant1Role: participant1Id === currentUser.uid ? currentProfile.role : null,
+      participant2Name: participant2Id === currentUser.uid ? currentProfile.name : null,
+      participant2Photo: participant2Id === currentUser.uid ? currentProfile.photo : null,
+      participant2Role: participant2Id === currentUser.uid ? currentProfile.role : null,
+    };
 
-      if (otherUserId && otherUserId !== currentUser.uid) {
-        const otherUserRef = doc(db, 'users', otherUserId);
-        const otherUserSnap = await getDoc(otherUserRef);
-        const otherRole = otherUserSnap.exists() ? String((otherUserSnap.data() as any)?.role || '').toLowerCase() : '';
-        const notificationRoute = otherRole === 'admin' ? '/(admin)/notifications' : '/notifications';
+    const conversationBaseData: any = {
+      participant1Id,
+      participant2Id,
+      createdAt: serverTimestamp(),
+    };
 
-        const senderRef = doc(db, 'users', currentUser.uid);
-        const senderSnap = await getDoc(senderRef);
-        const senderData: any = senderSnap.exists() ? senderSnap.data() : null;
-        const senderName =
-          senderData?.parentName ||
-          senderData?.academyName ||
-          senderData?.clinicName ||
-          senderData?.agentName ||
-          senderData?.name ||
-          `${senderData?.firstName || ''} ${senderData?.lastName || ''}`.trim() ||
-          senderData?.email ||
-          'User';
+    if (participant1Id === currentUser.uid) {
+      conversationUpdates.participant1Name = currentProfile.name;
+      conversationUpdates.participant1Photo = currentProfile.photo;
+      conversationUpdates.participant1Role = currentProfile.role;
+    } else if (participant2Id === currentUser.uid) {
+      conversationUpdates.participant2Name = currentProfile.name;
+      conversationUpdates.participant2Photo = currentProfile.photo;
+      conversationUpdates.participant2Role = currentProfile.role;
+    }
 
-        await createNotification({
-          userId: otherUserId,
-          title: `New message from ${senderName}`,
-          body: content.trim() || 'Sent a message',
-          type: 'info',
-          data: {
-            senderId: currentUser.uid,
-            conversationId,
-            route: notificationRoute,
-          },
-        });
-      }
-    } catch (err) {
-      console.warn('Failed to create message notification:', err);
+    await setDoc(
+      conversationRef,
+      { ...conversationBaseData, ...conversationUpdates },
+      { merge: true }
+    );
+
+    const conversationSnap = await getDoc(conversationRef);
+    const conversationData = conversationSnap.exists() ? (conversationSnap.data() as any) : null;
+    const conversationParticipant1Id = typeof conversationData?.participant1Id === 'string'
+      ? conversationData.participant1Id
+      : participant1Id;
+    const conversationParticipant2Id = typeof conversationData?.participant2Id === 'string'
+      ? conversationData.participant2Id
+      : participant2Id;
+    const otherUserId = conversationParticipant1Id === currentUser.uid
+      ? conversationParticipant2Id
+      : conversationParticipant1Id;
+
+    if (otherUserId && otherUserId !== currentUser.uid) {
+      void (async () => {
+        try {
+          const otherRole = conversationData
+            ? String(
+                conversationParticipant1Id === otherUserId
+                  ? conversationData.participant1Role || ''
+                  : conversationData.participant2Role || ''
+              ).toLowerCase()
+            : '';
+          const notificationRoute = otherRole === 'admin' ? '/(admin)/notifications' : '/notifications';
+
+          await sendPushNotificationsToUsers(
+            [otherUserId],
+            `New message from ${currentProfile.name}`,
+            trimmedContent || 'Sent a message',
+            {
+              senderId: currentUser.uid,
+              conversationId,
+              notificationKind: 'chat',
+              route: notificationRoute,
+            }
+          );
+        } catch (err) {
+          if (!isTransientNotificationDispatchError(err)) {
+            console.warn('Failed to create message notification:', err);
+          }
+        }
+      })();
     }
 
     return messageId;
@@ -248,6 +568,12 @@ export async function getConversations(): Promise<Conversation[]> {
         id: docSnap.id,
         participant1Id: data.participant1Id,
         participant2Id: data.participant2Id,
+        participant1Name: data.participant1Name,
+        participant2Name: data.participant2Name,
+        participant1Photo: data.participant1Photo,
+        participant2Photo: data.participant2Photo,
+        participant1Role: data.participant1Role,
+        participant2Role: data.participant2Role,
         lastMessage: data.lastMessage,
         lastMessageAt: data.lastMessageAt,
         lastMessageSenderId: data.lastMessageSenderId,
@@ -263,6 +589,12 @@ export async function getConversations(): Promise<Conversation[]> {
         id: docSnap.id,
         participant1Id: data.participant1Id,
         participant2Id: data.participant2Id,
+        participant1Name: data.participant1Name,
+        participant2Name: data.participant2Name,
+        participant1Photo: data.participant1Photo,
+        participant2Photo: data.participant2Photo,
+        participant1Role: data.participant1Role,
+        participant2Role: data.participant2Role,
         lastMessage: data.lastMessage,
         lastMessageAt: data.lastMessageAt,
         lastMessageSenderId: data.lastMessageSenderId,
@@ -273,59 +605,13 @@ export async function getConversations(): Promise<Conversation[]> {
 
     // Sort by lastMessageAt (most recent first)
     conversations.sort((a, b) => {
-      const timeA = a.lastMessageAt?.toMillis?.() || 0;
-      const timeB = b.lastMessageAt?.toMillis?.() || 0;
+      const timeA = getTimestampMillis(a.lastMessageAt || a.createdAt);
+      const timeB = getTimestampMillis(b.lastMessageAt || b.createdAt);
       return timeB - timeA;
     });
 
-    // Fetch user details for other participants
     const enrichedConversations = await Promise.all(
-      conversations.map(async (conv) => {
-        const otherUserId = conv.otherParticipantId!;
-        try {
-          const userRef = doc(db, 'users', otherUserId);
-          const userSnap = await getDoc(userRef);
-          
-          if (userSnap.exists()) {
-            const userData = userSnap.data();
-            conv.otherParticipantName = 
-              userData.firstName && userData.lastName
-                ? `${userData.firstName} ${userData.lastName}`
-                : userData.firstName || userData.lastName || userData.email || userData.phone || 'Unknown';
-            conv.otherParticipantPhoto = userData.profilePhoto;
-            conv.otherParticipantRole = userData.role;
-            
-            // Also set participant names for clarity
-            if (conv.participant1Id === otherUserId) {
-              conv.participant1Name = conv.otherParticipantName;
-              conv.participant1Photo = conv.otherParticipantPhoto;
-            } else {
-              conv.participant2Name = conv.otherParticipantName;
-              conv.participant2Photo = conv.otherParticipantPhoto;
-            }
-          }
-        } catch (error) {
-          console.error(`Error fetching user ${otherUserId}:`, error);
-        }
-
-        // Calculate unread count (client-side filtering to avoid composite index)
-        try {
-          const messagesRef = collection(db, 'conversations', conv.id, 'messages');
-          // Only filter by isRead to avoid composite index requirement
-          const unreadQuery = query(
-            messagesRef,
-            where('isRead', '==', false)
-          );
-          const unreadSnap = await getDocs(unreadQuery);
-          // Filter client-side for senderId != currentUser.uid
-          conv.unreadCount = unreadSnap.docs.filter(doc => doc.data().senderId !== currentUser.uid).length;
-        } catch (error) {
-          console.error(`Error calculating unread count:`, error);
-          conv.unreadCount = 0;
-        }
-
-        return conv;
-      })
+      conversations.map((conv) => enrichConversation(conv, currentUser.uid))
     );
 
     return enrichedConversations;
@@ -359,68 +645,41 @@ export function subscribeToConversations(
   );
 
   let conversations: Conversation[] = [];
-  const userCache: { [key: string]: any } = {};
+  let processVersion = 0;
+  let processScheduled = false;
 
   const processConversations = async () => {
-    const enriched: Conversation[] = [];
+    const version = ++processVersion;
+    const conversationSnapshot = [...conversations];
+    const enriched = await Promise.all(
+      conversationSnapshot.map((conv) => enrichConversation(conv, currentUser.uid))
+    );
 
-    for (const conv of conversations) {
-      const otherUserId = conv.otherParticipantId!;
-      
-      // Get user data from cache or fetch
-      if (!userCache[otherUserId]) {
-        try {
-          const userRef = doc(db, 'users', otherUserId);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            userCache[otherUserId] = userSnap.data();
-          }
-        } catch (error) {
-          console.error(`Error fetching user ${otherUserId}:`, error);
-        }
-      }
-
-      const userData = userCache[otherUserId];
-      if (userData) {
-        conv.otherParticipantName = 
-          userData.firstName && userData.lastName
-            ? `${userData.firstName} ${userData.lastName}`
-            : userData.firstName || userData.lastName || userData.email || userData.phone || 'Unknown';
-        conv.otherParticipantPhoto = userData.profilePhoto;
-        conv.otherParticipantRole = userData.role;
-      }
-
-      // Calculate unread count (client-side filtering to avoid composite index)
-      try {
-        const messagesRef = collection(db, 'conversations', conv.id, 'messages');
-        // Only filter by isRead to avoid composite index requirement
-        const unreadQuery = query(
-          messagesRef,
-          where('isRead', '==', false)
-        );
-        const unreadSnap = await getDocs(unreadQuery);
-        // Filter client-side for senderId != currentUser.uid
-        conv.unreadCount = unreadSnap.docs.filter(doc => doc.data().senderId !== currentUser.uid).length;
-      } catch (error) {
-        conv.unreadCount = 0;
-      }
-
-      enriched.push(conv);
+    if (version !== processVersion) {
+      return;
     }
 
-    // Show ALL existing conversations - don't filter by bookings
-    // Booking checks only apply when STARTING new conversations, not viewing existing ones
-    // This ensures all users who have communicated are visible
-    let filtered = enriched;
-
-    // Sort by lastMessageAt
-    filtered.sort((a, b) => {
-      const timeA = a.lastMessageAt?.toMillis?.() || 0;
-      const timeB = b.lastMessageAt?.toMillis?.() || 0;
+    enriched.sort((a, b) => {
+      const timeA = getTimestampMillis(a.lastMessageAt || a.createdAt);
+      const timeB = getTimestampMillis(b.lastMessageAt || b.createdAt);
       return timeB - timeA;
     });
 
-    callback(filtered);
+    callback(enriched);
+  };
+
+  const scheduleProcessConversations = () => {
+    if (processScheduled) {
+      return;
+    }
+
+    processScheduled = true;
+    Promise.resolve().then(() => {
+      processScheduled = false;
+      processConversations().catch((error) => {
+        console.error('Error processing conversations:', error);
+      });
+    });
   };
 
   const unsubscribe1 = onSnapshot(q1, (snapshot) => {
@@ -432,6 +691,12 @@ export function subscribeToConversations(
         id: docSnap.id,
         participant1Id: data.participant1Id,
         participant2Id: data.participant2Id,
+        participant1Name: data.participant1Name,
+        participant2Name: data.participant2Name,
+        participant1Photo: data.participant1Photo,
+        participant2Photo: data.participant2Photo,
+        participant1Role: data.participant1Role,
+        participant2Role: data.participant2Role,
         lastMessage: data.lastMessage,
         lastMessageAt: data.lastMessageAt,
         lastMessageSenderId: data.lastMessageSenderId,
@@ -452,7 +717,7 @@ export function subscribeToConversations(
       c.participant1Id === currentUser.uid ? snapshotIds.has(c.id) : true
     );
     
-    processConversations();
+    scheduleProcessConversations();
   });
 
   const unsubscribe2 = onSnapshot(q2, (snapshot) => {
@@ -464,6 +729,12 @@ export function subscribeToConversations(
         id: docSnap.id,
         participant1Id: data.participant1Id,
         participant2Id: data.participant2Id,
+        participant1Name: data.participant1Name,
+        participant2Name: data.participant2Name,
+        participant1Photo: data.participant1Photo,
+        participant2Photo: data.participant2Photo,
+        participant1Role: data.participant1Role,
+        participant2Role: data.participant2Role,
         lastMessage: data.lastMessage,
         lastMessageAt: data.lastMessageAt,
         lastMessageSenderId: data.lastMessageSenderId,
@@ -484,7 +755,7 @@ export function subscribeToConversations(
       c.participant2Id === currentUser.uid ? snapshotIds.has(c.id) : true
     );
     
-    processConversations();
+    scheduleProcessConversations();
   });
 
   return () => {
@@ -501,6 +772,7 @@ export async function getMessages(
   limitCount: number = 50
 ): Promise<Message[]> {
   try {
+    const currentUserId = auth.currentUser?.uid;
     const messagesRef = collection(db, 'conversations', conversationId, 'messages');
     const q = query(
       messagesRef,
@@ -519,6 +791,8 @@ export async function getMessages(
         senderId: data.senderId,
         content: data.content || '',
         mediaUrl: data.mediaUrl,
+        senderName: data.senderName,
+        senderPhoto: data.senderPhoto,
         isRead: data.isRead || false,
         createdAt: data.createdAt,
       });
@@ -527,37 +801,9 @@ export async function getMessages(
     // Reverse to show oldest first
     messages.reverse();
 
-    // Fetch sender names
-    const senderIds = [...new Set(messages.map(m => m.senderId))];
-    const senderData: { [key: string]: any } = {};
-
-    await Promise.all(
-      senderIds.map(async (senderId) => {
-        try {
-          const userRef = doc(db, 'users', senderId);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            const userData = userSnap.data();
-            senderData[senderId] = {
-              name: userData.firstName && userData.lastName
-                ? `${userData.firstName} ${userData.lastName}`
-                : userData.firstName || userData.lastName || userData.email || userData.phone || 'Unknown',
-              photo: userData.profilePhoto,
-            };
-          }
-        } catch (error) {
-          console.error(`Error fetching sender ${senderId}:`, error);
-        }
-      })
-    );
-
-    // Enrich messages with sender info
     messages.forEach((msg) => {
-      const sender = senderData[msg.senderId];
-      if (sender) {
-        msg.senderName = sender.name;
-        msg.senderPhoto = sender.photo;
-      }
+      msg.senderName = msg.senderName || (msg.senderId === currentUserId ? auth.currentUser?.displayName || auth.currentUser?.email || 'You' : 'Unknown');
+      msg.senderPhoto = msg.senderPhoto || undefined;
     });
 
     return messages;
@@ -577,17 +823,18 @@ export function subscribeToMessages(
 ): () => void {
   const currentUserId = auth.currentUser?.uid;
   const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+  let hasHandledInitialSnapshot = false;
   const q = query(
     messagesRef,
-    orderBy('createdAt', 'asc')
+    orderBy('createdAt', 'asc'),
+    limitToLast(LIVE_MESSAGES_WINDOW_SIZE)
   );
-
-  const senderCache: { [key: string]: any } = {};
 
   const unsubscribe = onSnapshot(
     q,
-    async (snapshot) => {
+    (snapshot) => {
       const messages: Message[] = [];
+      const unreadIncomingMessageIds: string[] = [];
 
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
@@ -597,54 +844,55 @@ export function subscribeToMessages(
           senderId: data.senderId,
           content: data.content || '',
           mediaUrl: data.mediaUrl,
+          senderName: data.senderName,
+          senderPhoto: data.senderPhoto,
           isRead: data.isRead || false,
           createdAt: data.createdAt,
         });
+
+        if (
+          currentUserId &&
+          data.senderId !== currentUserId &&
+          !data.isRead &&
+          !docSnap.metadata.hasPendingWrites
+        ) {
+          unreadIncomingMessageIds.push(docSnap.id);
+        }
       });
 
-      // Fetch sender names for new senders
-      const senderIds = [...new Set(messages.map(m => m.senderId))];
-      const newSenderIds = senderIds.filter(id => !senderCache[id]);
-
-      await Promise.all(
-        newSenderIds.map(async (senderId) => {
-          try {
-            const userRef = doc(db, 'users', senderId);
-            const userSnap = await getDoc(userRef);
-            if (userSnap.exists()) {
-              const userData = userSnap.data();
-              senderCache[senderId] = {
-                name: userData.firstName && userData.lastName
-                  ? `${userData.firstName} ${userData.lastName}`
-                  : userData.firstName || userData.lastName || userData.email || userData.phone || 'Unknown',
-                photo: userData.profilePhoto,
-              };
-            }
-          } catch (error) {
-            console.error(`Error fetching sender ${senderId}:`, error);
-          }
-        })
-      );
-
-      // Enrich messages with sender info
       messages.forEach((msg) => {
-        const sender = senderCache[msg.senderId];
-        if (sender) {
-          msg.senderName = sender.name;
-          msg.senderPhoto = sender.photo;
+        if (!msg.senderName && msg.senderId === currentUserId) {
+          msg.senderName = auth.currentUser?.displayName || auth.currentUser?.email || 'You';
         }
       });
 
       callback(messages);
 
-      const hasUnreadFromOtherUser = !!currentUserId && messages.some(
-        (msg) => !msg.isRead && msg.senderId !== currentUserId
-      );
-      if (hasUnreadFromOtherUser) {
-        markMessagesAsRead(conversationId).catch((error) => {
-          console.warn('Auto mark-as-read failed:', error);
-        });
+      if (
+        hasHandledInitialSnapshot &&
+        currentUserId &&
+        unreadIncomingMessageIds.length > 0 &&
+        !readReceiptInFlight.has(conversationId)
+      ) {
+        readReceiptInFlight.add(conversationId);
+        Promise.all(
+          unreadIncomingMessageIds.map((messageId) =>
+            updateDoc(doc(db, 'conversations', conversationId, 'messages', messageId), {
+              isRead: true,
+            })
+          )
+        )
+          .catch((error) => {
+            if (error?.code !== 'permission-denied') {
+              console.warn('Direct read receipt update failed:', error);
+            }
+          })
+          .finally(() => {
+            readReceiptInFlight.delete(conversationId);
+          });
       }
+
+      hasHandledInitialSnapshot = true;
     },
     (error: any) => {
       if (error?.code === 'permission-denied') {
@@ -675,16 +923,18 @@ export async function markMessagesAsRead(
 
   try {
     const messagesRef = collection(db, 'conversations', conversationId, 'messages');
-    // Only filter by isRead to avoid composite index requirement
     const q = query(
       messagesRef,
-      where('isRead', '==', false)
+      orderBy('createdAt', 'desc'),
+      limit(25)
     );
 
     const snapshot = await getDocs(q);
-    // Filter client-side for senderId != currentUser.uid, then update
     const unreadMessagesFromOthers = snapshot.docs.filter(
-      doc => doc.data().senderId !== currentUser.uid
+      (docSnap) => {
+        const data = docSnap.data();
+        return data.senderId !== currentUser.uid && data.isRead !== true;
+      }
     );
     
     const updatePromises = unreadMessagesFromOthers.map((docSnap) => {
@@ -693,6 +943,7 @@ export async function markMessagesAsRead(
     });
 
     await Promise.all(updatePromises);
+    unreadCountCache.set(conversationId, { value: 0, fetchedAt: Date.now() });
   } catch (error: any) {
     // Some deployments restrict message read-receipt updates by rules.
     // Do not break chat initialization/subscriptions when that happens.

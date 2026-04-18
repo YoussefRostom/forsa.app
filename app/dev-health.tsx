@@ -7,14 +7,28 @@ export default function DevHealthScreen() {
   const [logs, setLogs] = useState<string[]>([]);
   const push = (s: string) => setLogs(l => [s, ...l].slice(0, 50));
 
+  useEffect(() => {
+    void (async () => {
+      push('Checking Firebase connection...');
+      try {
+        const user = auth.currentUser;
+        push(`Auth: ${user ? `Logged in as ${user.email}` : 'Not logged in'}`);
+
+        const testRef = collection(db, 'users');
+        const snapshot = await getDocs(testRef);
+        push(`Firestore: Connected (${snapshot.size} users found)`);
+      } catch (err) {
+        push(`Firebase ERROR - ${String(err)}`);
+      }
+    })();
+  }, []);
+
   const checkFirebase = async () => {
     push('Checking Firebase connection...');
     try {
-      // Check auth
       const user = auth.currentUser;
       push(`Auth: ${user ? `Logged in as ${user.email}` : 'Not logged in'}`);
-      
-      // Check Firestore
+
       const testRef = collection(db, 'users');
       const snapshot = await getDocs(testRef);
       push(`Firestore: Connected (${snapshot.size} users found)`);
@@ -22,10 +36,6 @@ export default function DevHealthScreen() {
       push(`Firebase ERROR - ${String(err)}`);
     }
   };
-
-  useEffect(() => {
-    checkFirebase();
-  }, []);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 20 }}>

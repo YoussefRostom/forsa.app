@@ -77,7 +77,7 @@ const SignupAcademy = () => {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const handleBack = () => router.back();
 
@@ -147,7 +147,8 @@ const SignupAcademy = () => {
         </View>
         <ScrollView 
           contentContainerStyle={styles.container} 
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}
         >
         {/* Profile Picture Picker & Preview */}

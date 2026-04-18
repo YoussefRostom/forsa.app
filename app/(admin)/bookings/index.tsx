@@ -11,7 +11,8 @@ import {
     RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot } from 'firebase/firestore';
+import { getBookingPublicId } from '../../../lib/bookingId';
 import { db } from '../../../lib/firebase';
 import { getBookingStatusMeta } from '../../../lib/bookingStatus';
 
@@ -138,8 +139,6 @@ const fmtBookingDate = (booking: any) => {
     return createdAt ? createdAt.toLocaleDateString() : '-';
 };
 
-const shortId = (id: string) => String(id || '').slice(-6).toUpperCase();
-
 const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => (
     <TouchableOpacity style={[S.chip, active && S.chipActive]} onPress={onPress}>
         <Text style={[S.chipText, active && S.chipTextActive]}>{label}</Text>
@@ -175,7 +174,7 @@ export default function AdminBookingsListScreen() {
     const [qualityFilter, setQualityFilter] = useState<QualityFilter>('all');
     const [sortFilter, setSortFilter] = useState<SortFilter>('newest');
 
-    const load = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    const loadUsers = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
         if (mode === 'refresh') {
             setRefreshing(true);
         } else {
@@ -183,12 +182,7 @@ export default function AdminBookingsListScreen() {
         }
 
         try {
-            const [bookingsSnap, usersSnap] = await Promise.all([
-                getDocs(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'))),
-                getDocs(collection(db, 'users')),
-            ]);
-
-            const nextBookings = bookingsSnap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+            const usersSnap = await getDocs(collection(db, 'users'));
             const nextUsers: Record<string, string> = {};
 
             usersSnap.forEach((docSnap) => {
@@ -209,19 +203,36 @@ export default function AdminBookingsListScreen() {
                 if (name !== '-') nextUsers[docSnap.id] = name;
             });
 
-            setBookings(nextBookings);
             setUsers(nextUsers);
         } catch (error) {
             console.error('Failed to load bookings list:', error);
         } finally {
-            setLoading(false);
             setRefreshing(false);
         }
     }, []);
 
     useEffect(() => {
-        load();
-    }, [load]);
+        void loadUsers();
+
+        const unsubscribe = onSnapshot(
+            collection(db, 'bookings'),
+            (snapshot) => {
+                const nextBookings = snapshot.docs
+                    .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }))
+                    .sort((a, b) => toTimestamp(b) - toTimestamp(a));
+                setBookings(nextBookings);
+                setLoading(false);
+                setRefreshing(false);
+            },
+            (error) => {
+                console.error('Failed to subscribe to bookings list:', error);
+                setLoading(false);
+                setRefreshing(false);
+            }
+        );
+
+        return unsubscribe;
+    }, [loadUsers]);
 
     const derivedBookings = useMemo(() => {
         return bookings.map((booking) => {
@@ -255,12 +266,14 @@ export default function AdminBookingsListScreen() {
             const bookingTypeKey = getBookingTypeKey(booking);
             const bookingType = getBookingTypeLabel(booking);
             const customer = pickName(booking.customerName, player, parent);
+            const publicBookingId = getBookingPublicId(booking);
             const commentText = String(booking.comments || booking.comment || '').trim();
             const statusKey = String(booking.status || 'pending').toLowerCase();
             const shouldHaveParent = bookedByKey === 'parent' || (Boolean(booking.parentId) && String(booking.parentId) !== String(booking.playerId || '')) || Boolean(normalizeName(booking.parentName));
 
             return {
                 id: booking.id,
+                publicBookingId,
                 raw: booking,
                 statusMeta,
                 player,
@@ -284,6 +297,8 @@ export default function AdminBookingsListScreen() {
                 dayKey: toDayKey(booking),
                 searchBlob: [
                     booking.id,
+                    booking.bookingPublicId,
+                    publicBookingId,
                     customer,
                     player,
                     parent,
@@ -376,7 +391,7 @@ export default function AdminBookingsListScreen() {
             data={filtered}
             keyExtractor={(item) => item.id}
             contentContainerStyle={S.listContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load('refresh')} tintColor="#0f172a" />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadUsers('refresh')} tintColor="#0f172a" />}
             ListHeaderComponent={
                 <View style={S.headerWrap}>
                     <View style={S.heroCard}>
@@ -400,7 +415,7 @@ export default function AdminBookingsListScreen() {
                             style={S.search}
                             value={search}
                             onChangeText={setSearch}
-                            placeholder="Search customer, parent, provider, service, id"
+                            placeholder="Search customer, parent, provider, service, booking ID"
                             placeholderTextColor="#94a3b8"
                         />
                         <View style={S.resultRow}>
@@ -494,7 +509,7 @@ export default function AdminBookingsListScreen() {
                         <View style={S.softBadge}><Text style={S.softBadgeText}>{item.bookingType}</Text></View>
                         <View style={S.softBadge}><Text style={S.softBadgeText}>{item.bookedBy}</Text></View>
                         <View style={S.softBadge}><Text style={S.softBadgeText}>{item.attendanceLabel}</Text></View>
-                        <View style={S.softBadge}><Text style={S.softBadgeText}>#{shortId(item.id)}</Text></View>
+                        <View style={S.softBadge}><Text style={S.softBadgeText}>{item.publicBookingId}</Text></View>
                     </View>
 
                     <View style={S.infoGrid}>

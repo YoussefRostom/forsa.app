@@ -2,12 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Image } from 'react-native';
+import { Alert, Animated, Easing, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { notifyProviderAndAdmins, createNotification } from '../services/NotificationService';
-import { upsertBookingTransaction } from '../services/MonetizationService';
+import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches, resolveRecordBranch } from '../lib/bookingBranch';
+import { doc, getDoc } from 'firebase/firestore';
+import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
 
 export default function ParentPrivateTrainingDetailsScreen() {
   const params = useLocalSearchParams();
@@ -17,6 +17,7 @@ export default function ParentPrivateTrainingDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [sendingPrivateBooking, setSendingPrivateBooking] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -29,7 +30,16 @@ export default function ParentPrivateTrainingDetailsScreen() {
     if (params.id) {
       fetchDetails(params.id as string);
     }
-  }, [params.id]);
+  }, [fadeAnim, params.id]);
+
+  const branches = normalizeBookingBranches(academy?.locations);
+  const assignedProgramBranch = resolveRecordBranch(program, branches);
+  const selectedBranch = branches.find((branch) => branch.id === selectedBranchId) || null;
+
+  useEffect(() => {
+    const defaultBranchId = assignedProgramBranch?.id || branches[0]?.id || '';
+    setSelectedBranchId((current) => (branches.some((branch) => branch.id === current) ? current : defaultBranchId));
+  }, [academy, program]);
 
   const fetchDetails = async (id: string) => {
     try {
@@ -38,7 +48,7 @@ export default function ParentPrivateTrainingDetailsScreen() {
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
-        const progData = { id: docSnap.id, ...docSnap.data() };
+        const progData: any = { id: docSnap.id, ...docSnap.data() };
         setProgram(progData);
         
         if (progData.academyId) {
@@ -86,6 +96,13 @@ export default function ParentPrivateTrainingDetailsScreen() {
       return;
     }
 
+    const bookingBranch = assignedProgramBranch || selectedBranch;
+
+    if (branches.length > 0 && !bookingBranch) {
+      Alert.alert(i18n.t('error') || 'Error', i18n.t('selectBranch') || 'Please select a branch');
+      return;
+    }
+
     try {
       setSendingPrivateBooking(true);
 
@@ -97,7 +114,7 @@ export default function ParentPrivateTrainingDetailsScreen() {
           const userData = userDoc.data();
           playerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || playerName;
         }
-      } catch (err) {}
+      } catch {}
 
       const providerName = academy.academyName || academy.name;
 
@@ -110,10 +127,11 @@ export default function ParentPrivateTrainingDetailsScreen() {
         type: 'academy',
         programId: program.id,
         status: 'pending',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateInput(),
         createdAt: new Date().toISOString(),
         name: providerName,
-        city: academy.city,
+        city: bookingBranch?.city || academy.city,
+        ...buildBookingBranchPayload(bookingBranch),
         program: program.name,
         coachName: program.coachName,
         sessionType: 'private',
@@ -121,39 +139,17 @@ export default function ParentPrivateTrainingDetailsScreen() {
         duration: program.duration,
       };
 
-      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
-      await upsertBookingTransaction(bookingRef.id, bookingData, user.uid, 'Parent private training booking created');
+      await createBookingWithTransaction(bookingData, user.uid, 'Parent private training booking created');
       setSendingPrivateBooking(false);
       Alert.alert(
         i18n.t('bookingRequestSent') || 'Booking Request Sent',
         i18n.t('privateTrainingBookingDesc') || 'Your private training booking request has been sent. You will be notified once the academy responds.',
-        [{ text: i18n.t('done') || 'OK', onPress: () => router.back() }]
+        [{ text: i18n.t('done') || 'OK', onPress: () => router.push('/parent-bookings') }]
       );
-
-      (async () => {
-        try {
-          await notifyProviderAndAdmins(
-            academy.id,
-            'New booking request',
-            `${playerName} requested private training: ${program.name}`,
-            'booking',
-            { bookingId: bookingRef.id },
-            user.uid
-          );
-          await createNotification({
-            userId: user.uid,
-            title: 'Booking request sent',
-            body: `${providerName} – ${program.name} with ${program.coachName}`,
-            type: 'booking',
-            data: { bookingId: bookingRef.id },
-          });
-        } catch (e) {
-          console.warn('Notification create failed:', e);
-        }
-      })();
     } catch (error) {
       console.error('Private training booking error:', error);
-      Alert.alert(i18n.t('error'), i18n.t('bookingFailed') || 'Failed to send booking request. Please try again.');
+      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to send booking request. Please try again.');
+      Alert.alert(i18n.t('error'), message);
     } finally {
       setSendingPrivateBooking(false);
     }
@@ -262,6 +258,37 @@ export default function ParentPrivateTrainingDetailsScreen() {
                   </View>
                 </View>
               )}
+
+              {assignedProgramBranch ? (
+                <View style={styles.detailRow}>
+                  <View style={styles.detailIcon}>
+                    <Ionicons name="location-outline" size={20} color="#000" />
+                  </View>
+                  <View style={styles.detailContent}>
+                    <Text style={styles.detailLabel}>{i18n.t('branch') || 'Branch'}</Text>
+                    <Text style={styles.detailValue}>{getBranchSummary(assignedProgramBranch)}</Text>
+                  </View>
+                </View>
+              ) : branches.length > 0 && (
+                <View style={styles.branchSection}>
+                  <Text style={styles.branchSectionTitle}>{i18n.t('selectBranch') || 'Select Branch'}</Text>
+                  {branches.map((branch) => {
+                    const addressLine = getBranchAddressLine(branch);
+                    const isSelected = selectedBranchId === branch.id;
+                    return (
+                      <TouchableOpacity
+                        key={branch.id}
+                        style={[styles.branchOption, isSelected && styles.branchOptionSelected]}
+                        onPress={() => setSelectedBranchId(branch.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.branchOptionTitle, isSelected && styles.branchOptionTitleSelected]}>{branch.name}</Text>
+                        {!!addressLine && <Text style={[styles.branchOptionSubtitle, isSelected && styles.branchOptionSubtitleSelected]}>{addressLine}</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
             </View>
 
             <TouchableOpacity
@@ -307,6 +334,14 @@ const styles = StyleSheet.create({
   detailContent: { flex: 1 },
   detailLabel: { fontSize: 14, fontWeight: '600', color: '#666', marginBottom: 4 },
   detailValue: { fontSize: 16, color: '#000', lineHeight: 22 },
+  branchSection: { marginTop: 4, gap: 10 },
+  branchSectionTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 2 },
+  branchOption: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#fafafa' },
+  branchOptionSelected: { borderColor: '#000', backgroundColor: '#f3f4f6' },
+  branchOptionTitle: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  branchOptionTitleSelected: { color: '#000' },
+  branchOptionSubtitle: { marginTop: 4, fontSize: 13, lineHeight: 18, color: '#6b7280' },
+  branchOptionSubtitleSelected: { color: '#374151' },
   reserveButton: { backgroundColor: '#000', borderRadius: 12, height: 56, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
   reserveIcon: { marginRight: 8 },
   reserveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },

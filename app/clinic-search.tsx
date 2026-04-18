@@ -12,7 +12,7 @@ import { collection, getDocs, query } from 'firebase/firestore';
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
 const cityOptions = cities.filter(({ key }) => !['giza', 'newCairo'].includes(key));
-const districtsByCity: Record<string, Array<{ key: string; label: string }>> = {
+const districtsByCity: Record<string, { key: string; label: string }[]> = {
   cairo: [
     { key: 'Maadi', label: 'Maadi' },
     { key: 'Nasr City', label: 'Nasr City' },
@@ -38,9 +38,6 @@ const districtsByCity: Record<string, Array<{ key: string; label: string }>> = {
     { key: 'Montaza', label: 'Montaza' },
   ],
 };
-const allDistrictOptions = Object.values(districtsByCity)
-  .flat()
-  .filter((option, index, list) => list.findIndex((item) => item.key === option.key) === index);
 const servicesList = [
   { key: 'spa', label: i18n.t('spa') || 'Spa' },
   { key: 'sauna', label: i18n.t('sauna') || 'Sauna' },
@@ -213,7 +210,7 @@ interface Clinic {
   services: string[];
   minPrice: number;
   servicePrices: Record<string, number>;
-  locations?: Array<{ city?: string; district?: string; address?: string }>;
+  locations?: { city?: string; district?: string; address?: string }[];
 }
 
 export default function ClinicSearchScreen() {
@@ -235,7 +232,7 @@ export default function ClinicSearchScreen() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const availableDistricts = city ? districtsByCity[city] || [] : [];
+  const availableDistricts = React.useMemo(() => (city ? districtsByCity[city] || [] : []), [city]);
   const isDistrictEnabled = Boolean(city && availableDistricts.length > 0);
   const sortOptions = [
     { key: 'recommended', label: i18n.t('recommendedSort') || 'Recommended' },
@@ -252,20 +249,9 @@ export default function ClinicSearchScreen() {
     if (city && district && !availableDistricts.some((item) => item.key === district)) {
       setDistrict('');
     }
-  }, [city]);
+  }, [availableDistricts, city, district]);
 
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 600,
-      easing: Easing.out(Easing.exp),
-      useNativeDriver: true,
-    }).start();
-
-    fetchClinics();
-  }, []);
-
-  const fetchClinics = async () => {
+  const fetchClinics = React.useCallback(async () => {
     try {
       setLoading(true);
 
@@ -277,7 +263,6 @@ export default function ClinicSearchScreen() {
       querySnapshot.forEach((doc) => {
         const data = doc.data();
 
-        // Extract services that are selected
         const clinicServices: string[] = [];
         const servicePrices: Record<string, number> = {};
         let minServicePrice = Infinity;
@@ -318,7 +303,20 @@ export default function ClinicSearchScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      easing: Easing.out(Easing.exp),
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  useEffect(() => {
+    fetchClinics();
+  }, [fetchClinics]);
 
   const getServicePrice = (clinic: Clinic, selectedService: string): number => {
     if (!selectedService) return clinic.minPrice;
@@ -337,7 +335,7 @@ export default function ClinicSearchScreen() {
       return [clinic.id, nearestDistance] as const;
     });
 
-    setDistanceMap(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, number]>));
+    setDistanceMap(Object.fromEntries(entries.filter(Boolean) as (readonly [string, number])[]));
   };
 
   const handleSortSelection = async (sortKey: string) => {

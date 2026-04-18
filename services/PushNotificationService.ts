@@ -1,28 +1,43 @@
 import Constants from 'expo-constants';
+import * as ExpoNotifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { Platform } from 'react-native';
 import { arrayUnion, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { isExpectedNetworkError } from '../lib/networkErrors';
 
 let listenersConfigured = false;
 let notificationHandlerConfigured = false;
 let pushSyncInFlight: Promise<string | null> | null = null;
-let notificationsModuleCache: any | null | undefined;
+
+const DEFAULT_PUSH_CHANNEL_ID = 'default';
+const CHAT_PUSH_CHANNEL_ID = 'chat-messages';
+const COMMISSION_PUSH_CHANNEL_ID = 'commission-updates';
+
+function isChatNotificationPayload(data?: Record<string, string | number | boolean>): boolean {
+  return Boolean(data && (data.notificationKind === 'chat' || typeof data.conversationId === 'string'));
+}
+
+function isCommissionNotificationPayload(data?: Record<string, string | number | boolean>): boolean {
+  return Boolean(data && data.notificationKind === 'commission_settings');
+}
+
+function resolvePushChannelId(data?: Record<string, string | number | boolean>): string {
+  if (isChatNotificationPayload(data)) {
+    return CHAT_PUSH_CHANNEL_ID;
+  }
+
+  if (isCommissionNotificationPayload(data)) {
+    return COMMISSION_PUSH_CHANNEL_ID;
+  }
+
+  return DEFAULT_PUSH_CHANNEL_ID;
+}
 
 function getNotificationsModule(): any | null {
-  if (notificationsModuleCache !== undefined) {
-    return notificationsModuleCache;
-  }
-
-  try {
-    const optionalRequire = eval('require');
-    notificationsModuleCache = optionalRequire('expo-notifications');
-  } catch (error) {
-    console.warn('[PushNotificationService] expo-notifications is unavailable in this build:', error);
-    notificationsModuleCache = null;
-  }
-
-  return notificationsModuleCache;
+  return ExpoNotifications && typeof ExpoNotifications.getPermissionsAsync === 'function'
+    ? ExpoNotifications
+    : null;
 }
 
 function ensureNotificationHandler(): any | null {
@@ -33,6 +48,7 @@ function ensureNotificationHandler(): any | null {
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
+      shouldShowAlert: true,
       shouldShowBanner: true,
       shouldShowList: true,
       shouldPlaySound: true,
@@ -107,9 +123,28 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     }
 
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
+      await Notifications.setNotificationChannelAsync(DEFAULT_PUSH_CHANNEL_ID, {
         name: 'default',
         importance: Notifications.AndroidImportance.MAX,
+        sound: 'default',
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#000000',
+      });
+
+      await Notifications.setNotificationChannelAsync(CHAT_PUSH_CHANNEL_ID, {
+        name: 'Chat messages',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'default',
+        enableVibrate: true,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#000000',
+      });
+
+      await Notifications.setNotificationChannelAsync(COMMISSION_PUSH_CHANNEL_ID, {
+        name: 'Commission updates',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'default',
+        enableVibrate: true,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#000000',
       });
@@ -131,15 +166,15 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       Constants.expoConfig?.extra?.eas?.projectId ||
       Constants.easConfig?.projectId;
 
-    if (!projectId) {
-      console.warn('[PushNotificationService] Missing Expo projectId; cannot fetch push token.');
-      return null;
-    }
+    const tokenResponse = projectId
+      ? await Notifications.getExpoPushTokenAsync({ projectId })
+      : await Notifications.getExpoPushTokenAsync();
 
-    const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
     return tokenResponse.data || null;
   } catch (error) {
-    console.warn('[PushNotificationService] Push registration failed:', error);
+    if (!isExpectedNetworkError(error)) {
+      console.warn('[PushNotificationService] Push registration failed:', error);
+    }
     return null;
   }
 }
@@ -195,6 +230,7 @@ export async function sendPushNotificationsToUsers(
       uniqueUserIds.map((userId) => getDoc(doc(db, 'users', userId)))
     );
 
+    const channelId = resolvePushChannelId(data);
     const messages = userSnapshots.flatMap((userSnap) => {
       if (!userSnap.exists()) return [];
 
@@ -208,11 +244,16 @@ export async function sendPushNotificationsToUsers(
         data: data || {},
         sound: 'default',
         priority: 'high' as const,
-        channelId: 'default',
+        channelId,
       }));
     });
 
     if (messages.length === 0) return;
+
+    const abortController = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeoutHandle = abortController
+      ? setTimeout(() => abortController.abort(), 5000)
+      : null;
 
     const response = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
@@ -222,13 +263,22 @@ export async function sendPushNotificationsToUsers(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(messages),
+      signal: abortController?.signal,
     });
+
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
       console.warn('[PushNotificationService] Expo push send failed:', errorText);
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (/timed out|aborted/i.test(message)) {
+      return;
+    }
     console.warn('[PushNotificationService] Unable to send push notification:', error);
   }
 }

@@ -38,7 +38,7 @@ export default function RoleScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const changeLanguage = async (lang: string) => {
     const isRTL = lang === "ar";

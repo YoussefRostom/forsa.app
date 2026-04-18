@@ -7,7 +7,6 @@ import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { subscribeToConversations, Conversation, findAdminUserId, getOrCreateConversation } from '../services/MessagingService';
-import { getChattableUsers, startConversationWithUser } from '../services/BookingMessagingService';
 import { auth } from '../lib/firebase';
 
 export default function ClinicMessagesScreen() {
@@ -15,9 +14,24 @@ export default function ClinicMessagesScreen() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [chattableUsers, setChattableUsers] = useState<Array<{userId: string; name: string; photo?: string; role: string}>>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingChattable, setLoadingChattable] = useState(false);
+  const [openingAdminChat, setOpeningAdminChat] = useState(false);
+
+  const openAdminChat = async () => {
+    if (openingAdminChat) return;
+
+    try {
+      setOpeningAdminChat(true);
+      const adminId = await findAdminUserId();
+      if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
+      const convId = await getOrCreateConversation(adminId);
+      router.push({ pathname: '/clinic-chat', params: { conversationId: convId, otherUserId: adminId, contact: 'Admin' } });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setOpeningAdminChat(false);
+    }
+  };
   
   React.useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -26,7 +40,7 @@ export default function ClinicMessagesScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   useEffect(() => {
     setLoading(true);
@@ -35,41 +49,10 @@ export default function ClinicMessagesScreen() {
       setLoading(false);
     });
 
-    loadChattableUsers();
-
     return () => {
       unsubscribe();
     };
   }, []);
-
-  const loadChattableUsers = async () => {
-    try {
-      setLoadingChattable(true);
-      const users = await getChattableUsers();
-      setChattableUsers(users);
-    } catch (error) {
-      console.error('Error loading chattable users:', error);
-    } finally {
-      setLoadingChattable(false);
-    }
-  };
-
-  const handleStartChat = async (userId: string, name: string) => {
-    try {
-      const conversationId = await startConversationWithUser(userId);
-      router.push({
-        pathname: '/clinic-chat',
-        params: {
-          conversationId,
-          otherUserId: userId,
-          contact: name
-        }
-      });
-    } catch (error: any) {
-      console.error('Error starting chat:', error);
-      Alert.alert(i18n.t('error') || 'Error', error.message || 'Failed to start conversation');
-    }
-  };
 
 
   return (
@@ -86,17 +69,14 @@ export default function ClinicMessagesScreen() {
               <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
                 <Ionicons name="menu" size={24} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity onPress={async () => {
-                try {
-                  const adminId = await findAdminUserId();
-                  if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
-                  const convId = await getOrCreateConversation(adminId);
-                  router.push({ pathname: '/clinic-chat', params: { conversationId: convId, otherUserId: adminId, contact: 'Admin' } });
-                } catch (err) { console.error(err); }
-              }}>
+              <TouchableOpacity onPress={openAdminChat} disabled={openingAdminChat} style={{ opacity: openingAdminChat ? 0.6 : 1 }}>
                 <View style={styles.textAdminBtn}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" style={{marginRight: 6}} />
-                  <Text style={styles.textAdminText}>{i18n.t('textAdmin') || 'Text Admin'}</Text>
+                  {openingAdminChat ? (
+                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
+                  ) : (
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" style={{marginRight: 6}} />
+                  )}
+                  <Text style={styles.textAdminText}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('textAdmin') || 'Text Admin')}</Text>
                 </View>
               </TouchableOpacity>
             </View>
@@ -121,39 +101,13 @@ export default function ClinicMessagesScreen() {
                 <Text style={styles.emptyText}>{i18n.t('noConversations') || 'No conversations yet'}</Text>
                 <Text style={styles.emptySubtext}>{i18n.t('startChatting') || 'Start chatting with players and parents who booked you!'}</Text>
                 
-                {loadingChattable ? (
-                  <ActivityIndicator size="small" color="#fff" style={{ marginTop: 20 }} />
-                ) : chattableUsers.length > 0 ? (
-                  <View style={styles.chattableUsersContainer}>
-                    <Text style={styles.chattableUsersTitle}>{i18n.t('startConversationLabel') || 'Start a conversation:'}</Text>
-                    {chattableUsers.map((user) => (
-                      <TouchableOpacity
-                        key={user.userId}
-                        style={styles.chattableUserCard}
-                        onPress={() => handleStartChat(user.userId, user.name)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.chattableUserAvatar}>
-                          {user.photo ? (
-                            <Image source={{ uri: user.photo }} style={styles.chattableUserAvatarImage} />
-                          ) : (
-                            <Ionicons name="person-circle" size={32} color="#fff" />
-                          )}
-                        </View>
-                        <Text style={styles.chattableUserName}>{user.name}</Text>
-                        <Ionicons name="chatbubble-ellipses" size={20} color="#fff" />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.viewBookingsButton}
-                    onPress={() => router.push('/clinic-bookings')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.viewBookingsButtonText}>{i18n.t('viewMyBookings') || 'View My Bookings'}</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  style={styles.viewBookingsButton}
+                  onPress={() => router.push('/clinic-bookings')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.viewBookingsButtonText}>{i18n.t('viewMyBookings') || 'View My Bookings'}</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               conversations.map((item) => {

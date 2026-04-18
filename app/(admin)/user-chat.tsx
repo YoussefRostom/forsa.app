@@ -5,7 +5,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { getOrCreateConversation, sendMessage, subscribeToMessages, markMessagesAsRead, Message } from '../../services/MessagingService';
 import { auth, db } from '../../lib/firebase';
-import i18n from '../../locales/i18n';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 
@@ -235,7 +234,11 @@ export default function AdminUserChat() {
     Keyboard.dismiss();
     try {
       await sendMessage(conversationIdState, message);
-      if (conversationIdState) await markMessagesAsRead(conversationIdState);
+      if (conversationIdState) {
+        markMessagesAsRead(conversationIdState).catch((error) => {
+          console.warn('Failed to mark admin chat messages as read after send:', error);
+        });
+      }
     } catch (err) {
       console.error('Error sending admin message:', err);
       setRetryDraft(message);

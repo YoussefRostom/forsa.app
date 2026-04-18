@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -23,7 +22,6 @@ const allServices = [
 ];
 
 const ClinicEditServicesScreen = () => {
-  const router = useRouter();
   const [services, setServices] = useState<{ key: string; price: string }[]>([]);
   const [customServices, setCustomServices] = useState<{ name: string; price: string }[]>([]);
   const { openMenu } = useHamburgerMenu();

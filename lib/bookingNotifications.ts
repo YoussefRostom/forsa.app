@@ -1,4 +1,15 @@
-import { createNotification, notifyProviderAndAdmins } from '../services/NotificationService';
+import {
+  createNotificationLocally,
+  createNotificationsLocallyForUsers,
+  createNotification,
+  getAdminUserIds,
+  notifyProviderAndAdmins,
+} from '../services/NotificationService';
+
+const isIgnorableBookingNotificationError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /network request timed out|timed out|aborted|must be authenticated to create notification/i.test(message);
+};
 
 const getBookingLabel = (booking: any) => {
   return (
@@ -53,22 +64,25 @@ export async function notifyBookingStatusChange(params: {
 
   try {
     if (providerId) {
-      await notifyProviderAndAdmins(
-        providerId,
+      const adminIds = await getAdminUserIds();
+      const recipientIds = [providerId, ...adminIds].filter((userId) => userId && userId !== actorId);
+      await createNotificationsLocallyForUsers(
+        recipientIds,
         title,
         providerBody,
         'booking',
-        { bookingId: booking.id, status: nextStatus },
-        actorId
+        { bookingId: booking.id, status: nextStatus }
       );
     }
   } catch (error) {
-    console.warn('Provider/admin booking notification failed:', error);
+    if (!isIgnorableBookingNotificationError(error)) {
+      console.warn('Provider/admin booking notification failed:', error);
+    }
   }
 
   try {
     if (customerUserId && customerUserId !== actorId) {
-      await createNotification({
+      await createNotificationLocally({
         userId: customerUserId,
         title,
         body: customerBody,
@@ -77,6 +91,76 @@ export async function notifyBookingStatusChange(params: {
       });
     }
   } catch (error) {
-    console.warn('Customer booking notification failed:', error);
+    if (!isIgnorableBookingNotificationError(error)) {
+      console.warn('Customer booking notification failed:', error);
+    }
   }
+}
+
+export async function notifyBookingRequestCreated(params: {
+  bookingId: string;
+  providerId?: string | null;
+  actorId?: string;
+  customerUserId?: string | null;
+  providerTitle: string;
+  providerBody: string;
+  customerTitle: string;
+  customerBody: string;
+  logPrefix?: string;
+}) {
+  const {
+    bookingId,
+    providerId,
+    actorId,
+    customerUserId,
+    providerTitle,
+    providerBody,
+    customerTitle,
+    customerBody,
+    logPrefix = 'Booking request notification failed:',
+  } = params;
+
+  if (!bookingId) return;
+
+  const tasks: Promise<void>[] = [];
+
+  if (customerUserId) {
+    tasks.push((async () => {
+      try {
+        await createNotificationLocally({
+          userId: customerUserId,
+          title: customerTitle,
+          body: customerBody,
+          type: 'booking',
+          data: { bookingId },
+        });
+      } catch (error) {
+        if (!isIgnorableBookingNotificationError(error)) {
+          console.warn(`${logPrefix} customer`, error);
+        }
+      }
+    })());
+  }
+
+  if (providerId) {
+    tasks.push((async () => {
+      try {
+        const adminIds = await getAdminUserIds();
+        const recipientIds = [providerId, ...adminIds].filter((userId) => userId && userId !== actorId);
+        await createNotificationsLocallyForUsers(
+          recipientIds,
+          providerTitle,
+          providerBody,
+          'booking',
+          { bookingId }
+        );
+      } catch (error) {
+        if (!isIgnorableBookingNotificationError(error)) {
+          console.warn(`${logPrefix} provider/admin`, error);
+        }
+      }
+    })());
+  }
+
+  await Promise.allSettled(tasks);
 }

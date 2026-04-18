@@ -1,7 +1,10 @@
+import './env';
 import * as admin from 'firebase-admin';
 import { getFirestore } from 'firebase-admin/firestore';
 import path from 'path';
 import fs from 'fs';
+
+const isProductionLike = process.env.NODE_ENV === 'production';
 
 // Firebase Admin initialization
 if (!admin.apps.length) {
@@ -38,13 +41,19 @@ if (!admin.apps.length) {
       if (serviceAccountPath) {
         serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
       } else {
-        // Option 3: Try Application Default Credentials (for GCP environments)
+        // Option 3: Try Application Default Credentials only outside production.
+        if (isProductionLike) {
+          throw new Error(
+            'Firebase service account not found. Production requires explicit Firebase Admin credentials via FIREBASE_SERVICE_ACCOUNT_KEY or a serviceAccountKey.json file.'
+          );
+        }
+
         try {
           admin.initializeApp({
             credential: admin.credential.applicationDefault(),
           });
           initialized = true;
-        } catch (adcError) {
+        } catch {
           throw new Error(
             'Firebase service account not found. Please provide one of the following:\n' +
             '1. Set FIREBASE_SERVICE_ACCOUNT_KEY environment variable (JSON string)\n' +
@@ -71,5 +80,5 @@ if (!admin.apps.length) {
 
 // Export Firestore DB and Auth
 export const db = getFirestore();
-export const auth = admin.auth();
+export const auth: admin.auth.Auth = admin.auth();
 export default admin;

@@ -54,7 +54,20 @@
           "locationWhenInUsePermission": "Forsa uses your location to show the nearest academies and training options around you."
         }
       ],
-      "@sentry/react-native"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Forsa uses your photo library so you can upload profile photos, media, and other content.",
+          "cameraPermission": "Forsa uses your camera so you can capture profile photos, media, and other content."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Forsa uses your camera to scan QR codes and capture media when needed."
+        }
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true
@@ -65,7 +78,9 @@
         "projectId": "d920838c-122c-4f4a-bcf1-ff4516d70d25"
       }
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "updates": {
       "url": "https://u.expo.dev/d920838c-122c-4f4a-bcf1-ff4516d70d25"
     },

@@ -5,10 +5,13 @@ import {
   updateUserStatus,
   listAllBookings,
   getBookingById as getAdminBookingById,
+  createAdminMessage,
+  listRevenue,
+  getRevenueSummary,
+  collectRevenue,
 } from '../controllers/admin.controller';
 import { authenticate, requireRole } from '../middleware/auth.middleware';
 import { UserRole } from '../types';
-import { createAdminMessage } from '../controllers/admin.controller';
 
 const router = Router();
 
@@ -151,6 +154,81 @@ router.get('/bookings', listAllBookings);
 router.get('/bookings/:id', getAdminBookingById);
 
 /**
+ * @swagger
+ * /api/admin/revenue:
+ *   get:
+ *     summary: List revenue records (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: source
+ *         schema:
+ *           type: string
+ *           enum: [booking, checkin, all]
+ *       - in: query
+ *         name: providerId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: bookingId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: platformStatus
+ *         schema:
+ *           type: string
+ *           enum: [due, received, cancelled, all]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Revenue records retrieved successfully
+ */
+router.get('/revenue', listRevenue);
+
+/**
+ * @swagger
+ * /api/admin/revenue/summary:
+ *   get:
+ *     summary: Get revenue summary totals (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Revenue summary retrieved successfully
+ */
+router.get('/revenue/summary', getRevenueSummary);
+
+/**
+ * @swagger
+ * /api/admin/revenue/{id}/collect:
+ *   post:
+ *     summary: Mark a revenue record as collected (Admin only)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Revenue record marked as received
+ */
+router.post('/revenue/:id/collect', collectRevenue);
+
+/**
  * Record that admin sent a message to a user and create a notification
  */
 router.post('/users/:id/message', createAdminMessage);
@@ -161,7 +239,6 @@ router.post('/users/:id/message', createAdminMessage);
 router.get('/users/:id/messages', async (req, res, next) => {
   // Delegate to controller
   try {
-    const { id } = req.params;
     const { getAdminMessages } = await import('../controllers/admin.controller');
     return getAdminMessages(req, res, next);
   } catch (err) {

@@ -5,7 +5,15 @@
 expo-env.d.ts
 node_modules
 .env
+.env.*
 .firebase/
 firebase-debug.log
 firebase-debug.*.log
+.expo/
+.expo-local-export/
+dist/
+dist-web/
+dist-smoke-android/
+*.xcode.log
+latest-xcode-*.log
 # @end expo-cli

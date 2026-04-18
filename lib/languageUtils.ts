@@ -68,24 +68,15 @@ export const initializeLanguage = async () => {
   try {
     const savedLang = await AsyncStorage.getItem('appLang');
     if (savedLang && (savedLang === 'en' || savedLang === 'ar')) {
-      const isRTL = savedLang === 'ar';
       i18n.locale = savedLang;
-      I18nManager.forceRTL(isRTL);
-      I18nManager.swapLeftAndRightInRTL(isRTL);
       return savedLang;
     } else {
-      // Default to English (LTR)
       i18n.locale = 'en';
-      I18nManager.forceRTL(false);
-      I18nManager.swapLeftAndRightInRTL(false);
       return 'en';
     }
   } catch (error) {
     console.error('Error initializing language:', error);
-    // Default to English on error
     i18n.locale = 'en';
-    I18nManager.forceRTL(false);
-    I18nManager.swapLeftAndRightInRTL(false);
     return 'en';
   }
 };

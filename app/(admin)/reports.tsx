@@ -47,7 +47,7 @@ export default function AdminReportsScreen() {
       }
     };
     checkAdmin();
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     if (!isUserAdmin) return;

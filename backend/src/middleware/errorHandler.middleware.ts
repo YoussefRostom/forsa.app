@@ -7,7 +7,14 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  console.error('Error:', err);
+  const statusCode = typeof err?.statusCode === 'number' ? err.statusCode : 500;
+  const code = typeof err?.code === 'string' ? err.code : 'INTERNAL_ERROR';
+  console.error('[backend] unhandled error:', {
+    code,
+    statusCode,
+    message: err?.message || 'Unknown error',
+    stack: process.env.NODE_ENV === 'development' ? err?.stack : undefined,
+  });
 
   // Zod validation errors
   if (err.name === 'ZodError') {
@@ -30,10 +37,10 @@ export function errorHandler(
   // Default error
   sendError(
     res,
-    'INTERNAL_ERROR',
-    err.message || 'Internal server error',
+    code,
+    statusCode >= 500 ? 'Internal server error' : (err.message || 'Request failed'),
     process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    500
+    statusCode
   );
 }
 

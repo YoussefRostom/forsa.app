@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ const deriveShortBookingCode = (bookingId: string) =>
     .slice(-7);
 
 try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const expoCamera = require('expo-camera');
   if (expoCamera && expoCamera.CameraView && expoCamera.useCameraPermissions) {
     CameraView = expoCamera.CameraView;
@@ -44,7 +45,7 @@ try {
     console.warn('expo-camera module loaded but components are missing');
     hasCameraModule = false;
   }
-} catch (error) {
+} catch {
   // Silent fallback - UI will show manual input option with installation instructions
   hasCameraModule = false;
 }
@@ -116,7 +117,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
   const lastScanRef = useRef<{ data: string; timestamp: number }>({ data: '', timestamp: 0 });
   
   // Always call the hook - this component should only render when module is available
-  // eslint-disable-next-line react-hooks/rules-of-hooks
+   
   const [permission, requestPermission] = useCameraPermissions();
 
   useEffect(() => {
@@ -368,14 +369,15 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
       </View>
 
       {isCameraAvailable && permission?.granted ? (
-        <CameraView
-          style={styles.camera}
-          facing="back"
-          onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-          barcodeScannerSettings={{
-            barcodeTypes: ['qr'],
-          }}
-        >
+        <View style={styles.cameraContainer}>
+          <CameraView
+            style={styles.camera}
+            facing="back"
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr'],
+            }}
+          />
           <View style={styles.overlay}>
             <View style={styles.scanArea}>
               <View style={styles.corner} />
@@ -387,7 +389,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
               {i18n.t('positionQrWithinFrame') || 'Position the QR code within the frame'}
             </Text>
           </View>
-        </CameraView>
+        </View>
       ) : (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#fff" />
@@ -471,7 +473,19 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
   );
 }
 
-type ProviderService = { name: string; price: number };
+type ProviderServiceKind = 'service' | 'age_group' | 'private_training';
+type AcademyWalkInMode = 'service' | 'age_group' | 'private_training';
+
+type ProviderService = {
+  id: string;
+  name: string;
+  price: number;
+  kind: ProviderServiceKind;
+  ageGroup?: string | null;
+  programId?: string | null;
+  coachName?: string | null;
+  description?: string | null;
+};
 
 export default function ScanCheckInScreen() {
   const router = useRouter();
@@ -484,11 +498,22 @@ export default function ScanCheckInScreen() {
   const [providerServices, setProviderServices] = useState<ProviderService[]>([]);
   const [adminCommissionRate, setAdminCommissionRate] = useState(15);
   const [selectedService, setSelectedService] = useState<ProviderService | null>(null);
+  const [academyWalkInMode, setAcademyWalkInMode] = useState<AcademyWalkInMode>('service');
   const [servicesLoading, setServicesLoading] = useState(false);
 
-  useEffect(() => {
-    checkUserRole();
-  }, []);
+  const visibleProviderServices = useMemo(() => {
+    if (userRole !== 'academy') {
+      return providerServices;
+    }
+
+    return providerServices.filter((service) => {
+      if (academyWalkInMode === 'private_training') {
+        return service.kind === 'private_training';
+      }
+
+      return service.kind === 'age_group';
+    });
+  }, [academyWalkInMode, providerServices, userRole]);
 
   const loadProviderServicesAndCommission = async (role: string) => {
     const uid = auth.currentUser?.uid;
@@ -496,6 +521,7 @@ export default function ScanCheckInScreen() {
     setServicesLoading(true);
     try {
       const services: ProviderService[] = [];
+      let defaultMode: AcademyWalkInMode = 'service';
 
       if (role === 'clinic') {
         const clinicSnap = await getDoc(doc(db, 'clinics', uid));
@@ -505,15 +531,25 @@ export default function ScanCheckInScreen() {
           if (data.services) {
             Object.entries(data.services).forEach(([key, val]: [string, any]) => {
               if (val?.selected && val?.fee) {
-                services.push({ name: key.replace(/_/g, ' '), price: parseFloat(val.fee) || 0 });
+                services.push({
+                  id: `clinic-${key}`,
+                  name: key.replace(/_/g, ' '),
+                  price: parseFloat(val.fee) || 0,
+                  kind: 'service',
+                });
               }
             });
           }
           // Custom clinic services
           if (Array.isArray(data.customServices)) {
-            data.customServices.forEach((s: any) => {
+            data.customServices.forEach((s: any, index: number) => {
               if (s?.name && s?.price) {
-                services.push({ name: s.name, price: parseFloat(s.price) || 0 });
+                services.push({
+                  id: `clinic-custom-${index}-${String(s.name).trim()}`,
+                  name: s.name,
+                  price: parseFloat(s.price) || 0,
+                  kind: 'service',
+                });
               }
             });
           }
@@ -526,7 +562,15 @@ export default function ScanCheckInScreen() {
           const fees: Record<string, any> = data.fees || data.prices || {};
           Object.entries(fees).forEach(([age, price]) => {
             const p = parseFloat(String(price)) || 0;
-            if (p > 0) services.push({ name: `U${age} Training`, price: p });
+            if (p > 0) {
+              services.push({
+                id: `academy-age-${age}`,
+                name: `U${age} Training`,
+                price: p,
+                kind: 'age_group',
+                ageGroup: String(age),
+              });
+            }
           });
         }
         // Private training programs
@@ -536,18 +580,38 @@ export default function ScanCheckInScreen() {
         programsSnap.docs.forEach((d) => {
           const pd = d.data();
           if (pd.fee > 0) {
-            services.push({ name: pd.name || `Private Training (${pd.coachName || ''})`, price: pd.fee });
+            const coachName = String(pd.coachName || '').trim();
+            const programName = String(pd.name || '').trim();
+            services.push({
+              id: `academy-private-${d.id}`,
+              name: coachName || programName || (i18n.t('privateTraining') || 'Private Training'),
+              price: pd.fee,
+              kind: 'private_training',
+              programId: d.id,
+              coachName: coachName || null,
+              description:
+                programName && programName !== coachName
+                  ? programName
+                  : (i18n.t('privateTraining') || 'Private Training'),
+            });
           }
         });
+
+        defaultMode = services.some((service) => service.kind === 'age_group')
+          ? 'age_group'
+          : 'private_training';
       }
 
       setProviderServices(services);
+      setSelectedService(null);
+      setAcademyWalkInMode(defaultMode);
 
       // Load admin commission rate
       const settingsSnap = await getDoc(doc(db, 'settings', 'admin'));
       if (settingsSnap.exists()) {
         const raw = settingsSnap.data();
         const rate =
+          raw?.walkInCommission?.value ??
           raw?.checkInCommission?.value ??
           raw?.bookingCommission?.value ??
           raw?.commissionRate ??
@@ -561,7 +625,16 @@ export default function ScanCheckInScreen() {
     }
   };
 
-  const checkUserRole = async () => {
+  useEffect(() => {
+    if (!selectedService) return;
+
+    const stillVisible = visibleProviderServices.some((service) => service.id === selectedService.id);
+    if (!stillVisible) {
+      setSelectedService(null);
+    }
+  }, [selectedService, visibleProviderServices]);
+
+  const checkUserRole = useCallback(async () => {
     try {
       const role = await getCurrentUserRole();
       setUserRole(role);
@@ -580,7 +653,11 @@ export default function ScanCheckInScreen() {
       Alert.alert(i18n.t('error') || 'Error', i18n.t('failedVerifyPermissions') || 'Failed to verify permissions');
       router.back();
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    checkUserRole();
+  }, [checkUserRole]);
 
   const parseScannedPayload = (value: string) => {
     const trimmed = value.trim();
@@ -736,19 +813,33 @@ export default function ScanCheckInScreen() {
     if (!pendingCode) return;
 
     if (!selectedService) {
-      Alert.alert('Select a Service', 'Please choose the service that was provided.');
+      const title = userRole === 'academy' && academyWalkInMode === 'private_training'
+        ? (i18n.t('selectPrivateTrainer') || 'Select Private Trainer')
+        : (i18n.t('selectService') || 'Select Service');
+      const message = userRole === 'academy' && academyWalkInMode === 'private_training'
+        ? (i18n.t('selectPrivateTrainerForWalkIn') || 'Please choose the private trainer who handled this walk-in session.')
+        : (i18n.t('pleaseChooseServiceProvided') || 'Please choose the service that was provided.');
+      Alert.alert(title, message);
       return;
     }
+
+    const walkInServiceName = selectedService.kind === 'private_training'
+      ? `${selectedService.description || (i18n.t('privateTraining') || 'Private Training')}${selectedService.coachName ? ` - ${selectedService.coachName}` : ''}`
+      : selectedService.name;
 
     setWalkInModalVisible(false);
     await processCheckInCode(pendingCode, {
       linkedBookingId: pendingBookingId,
       walkInService: {
-        serviceName: selectedService.name,
+        serviceName: walkInServiceName,
         grossAmount: selectedService.price,
         commissionPercentage: adminCommissionRate,
       },
       walkInCustomerType: walkInCustomerType.trim() || 'walk_in',
+      walkInServiceCategory: selectedService.kind,
+      walkInAgeGroup: selectedService.ageGroup || null,
+      walkInPrivateTrainerId: selectedService.programId || null,
+      walkInPrivateTrainerName: selectedService.coachName || null,
     });
 
     setPendingCode(null);
@@ -803,28 +894,79 @@ export default function ScanCheckInScreen() {
               Select the service provided. Commission ({adminCommissionRate}%) is applied automatically.
             </Text>
 
+            {userRole === 'academy' && (
+              <View style={styles.serviceModeRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.serviceModeButton,
+                    academyWalkInMode === 'age_group' && styles.serviceModeButtonActive,
+                  ]}
+                  onPress={() => setAcademyWalkInMode('age_group')}
+                >
+                  <Text
+                    style={[
+                      styles.serviceModeButtonText,
+                      academyWalkInMode === 'age_group' && styles.serviceModeButtonTextActive,
+                    ]}
+                  >
+                    {i18n.t('groupTraining') || 'Group Training'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.serviceModeButton,
+                    academyWalkInMode === 'private_training' && styles.serviceModeButtonActive,
+                  ]}
+                  onPress={() => setAcademyWalkInMode('private_training')}
+                >
+                  <Text
+                    style={[
+                      styles.serviceModeButtonText,
+                      academyWalkInMode === 'private_training' && styles.serviceModeButtonTextActive,
+                    ]}
+                  >
+                    {i18n.t('privateTraining') || 'Private Training'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {servicesLoading ? (
               <ActivityIndicator color="#007AFF" style={{ marginVertical: 16 }} />
-            ) : providerServices.length === 0 ? (
+            ) : visibleProviderServices.length === 0 ? (
               <Text style={{ color: '#999', textAlign: 'center', marginVertical: 12 }}>
-                No services found. Please add services to your profile first.
+                {userRole === 'academy' && academyWalkInMode === 'private_training'
+                  ? (i18n.t('noPrivateTrainersFound') || 'No private trainers found. Add private trainers to your academy profile first.')
+                  : (i18n.t('noServicesFound') || 'No services found. Please add services to your profile first.')}
               </Text>
             ) : (
               <ScrollView style={{ maxHeight: 200 }} showsVerticalScrollIndicator={false}>
-                {providerServices.map((svc, idx) => {
-                  const isSelected = selectedService?.name === svc.name;
+                {visibleProviderServices.map((svc) => {
+                  const isSelected = selectedService?.id === svc.id;
                   return (
                     <TouchableOpacity
-                      key={idx}
+                      key={svc.id}
                       style={[
                         styles.servicePickerRow,
                         isSelected && styles.servicePickerRowSelected,
                       ]}
                       onPress={() => setSelectedService(svc)}
                     >
-                      <Text style={[styles.servicePickerName, isSelected && { color: '#fff' }]}>
-                        {svc.name}
-                      </Text>
+                      <View style={styles.servicePickerTextBlock}>
+                        <Text style={[styles.servicePickerName, isSelected && { color: '#fff' }]}>
+                          {svc.name}
+                        </Text>
+                        {!!svc.description && (
+                          <Text style={[styles.servicePickerMeta, isSelected && { color: '#cef' }]}>
+                            {svc.description}
+                          </Text>
+                        )}
+                        {svc.kind === 'age_group' && !!svc.ageGroup && (
+                          <Text style={[styles.servicePickerMeta, isSelected && { color: '#cef' }]}>
+                            {(i18n.t('ageGroup') || 'Age Group')}: U{svc.ageGroup}
+                          </Text>
+                        )}
+                      </View>
                       <Text style={[styles.servicePickerPrice, isSelected && { color: '#cef' }]}>
                         {svc.price} EGP
                       </Text>
@@ -834,14 +976,11 @@ export default function ScanCheckInScreen() {
               </ScrollView>
             )}
 
-            <TextInput
-              style={[styles.modalInput, { marginTop: 12 }]}
-              placeholder="Customer type (walk_in / parent / player)"
-              placeholderTextColor="#999"
-              value={walkInCustomerType}
-              onChangeText={setWalkInCustomerType}
-              autoCapitalize="none"
-            />
+            <View style={[styles.modalInput, { marginTop: 12, justifyContent: 'center' }]}>
+              <Text style={{ color: '#111', fontSize: 14, fontWeight: '600' }}>
+                {i18n.t('customerType') || 'Customer Type'}: {walkInCustomerType}
+              </Text>
+            </View>
 
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
               <TouchableOpacity
@@ -962,6 +1101,10 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  cameraContainer: {
+    flex: 1,
+    position: 'relative',
   },
   overlay: {
     flex: 1,
@@ -1216,6 +1359,33 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 20,
   },
+  serviceModeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  serviceModeButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  serviceModeButtonActive: {
+    backgroundColor: '#007AFF',
+    borderColor: '#005BB5',
+  },
+  serviceModeButtonText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  serviceModeButtonTextActive: {
+    color: '#fff',
+  },
   modalInput: {
     backgroundColor: '#f5f5f5',
     borderRadius: 12,
@@ -1259,11 +1429,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#007AFF',
     borderColor: '#005BB5',
   },
+  servicePickerTextBlock: {
+    flex: 1,
+    paddingRight: 12,
+  },
   servicePickerName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#222',
-    flex: 1,
+  },
+  servicePickerMeta: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
   },
   servicePickerPrice: {
     fontSize: 14,

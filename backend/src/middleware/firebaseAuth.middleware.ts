@@ -21,7 +21,7 @@ export async function verifyFirebaseToken(
     const decoded = await auth.verifyIdToken(token);
     (req as any).firebaseUser = { uid: decoded.uid };
     next();
-  } catch (error) {
+  } catch {
     sendError(res, 'UNAUTHORIZED', 'Invalid or expired token', null, 401);
   }
 }

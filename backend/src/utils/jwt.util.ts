@@ -17,7 +17,7 @@ export function generateRefreshToken(payload: Omit<JwtPayload, 'iat' | 'exp'>): 
 export function verifyToken(token: string): JwtPayload {
   try {
     return jwt.verify(token, jwtConfig.secret) as JwtPayload;
-  } catch (error) {
+  } catch {
     throw new Error('Invalid or expired token');
   }
 }
@@ -25,7 +25,7 @@ export function verifyToken(token: string): JwtPayload {
 export function verifyRefreshToken(token: string): JwtPayload {
   try {
     return jwt.verify(token, jwtConfig.refreshSecret) as JwtPayload;
-  } catch (error) {
+  } catch {
     throw new Error('Invalid or expired refresh token');
   }
 }

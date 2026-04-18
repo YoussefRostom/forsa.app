@@ -41,7 +41,28 @@ const getAuthorAvatarUri = (item: any) => {
 };
 
 const getRoleBadgeMeta = (role?: string) => {
-  switch (role) {
+  switch (String(role || '').toLowerCase()) {
+    case 'player':
+      return {
+        icon: 'person-outline' as const,
+        label: i18n.t('playerRoleLabel') || 'Player',
+        backgroundColor: '#eff6ff',
+        color: '#1d4ed8',
+      };
+    case 'parent':
+      return {
+        icon: 'people-outline' as const,
+        label: i18n.t('parentRoleLabel') || 'Parent',
+        backgroundColor: '#ecfdf5',
+        color: '#047857',
+      };
+    case 'agent':
+      return {
+        icon: 'briefcase-outline' as const,
+        label: i18n.t('agentRoleLabel') || 'Agent',
+        backgroundColor: '#fff7ed',
+        color: '#c2410c',
+      };
     case 'academy':
       return {
         icon: 'school-outline' as const,
@@ -65,10 +86,10 @@ const getRoleBadgeMeta = (role?: string) => {
       };
     default:
       return {
-        icon: 'people-outline' as const,
-        label: i18n.t('parentRoleLabel') || 'Parent',
-        backgroundColor: '#ecfdf5',
-        color: '#047857',
+        icon: 'person-outline' as const,
+        label: i18n.t('playerRoleLabel') || 'Player',
+        backgroundColor: '#eff6ff',
+        color: '#1d4ed8',
       };
   }
 };
@@ -90,7 +111,7 @@ export default function ParentFeedScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const handleRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -233,7 +254,7 @@ export default function ParentFeedScreen() {
       : item.createdAt?.seconds
         ? new Date(item.createdAt.seconds * 1000)
         : null;
-    const roleMeta = getRoleBadgeMeta(item.ownerRole);
+    const roleMeta = getRoleBadgeMeta(item.ownerRole || item.authorRole || item.role);
     const avatarUri = getAuthorAvatarUri(item);
     const taggedNames = Array.isArray(item.taggedUserNames)
       ? item.taggedUserNames.filter(Boolean)

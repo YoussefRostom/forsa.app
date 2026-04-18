@@ -37,34 +37,40 @@ export default function BookingQrScreen() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadCode = async () => {
+    let isActive = true;
+
+    void (async () => {
       try {
         if (!bookingId) {
-          setIsBookingConfirmed(false);
+          if (isActive) setIsBookingConfirmed(false);
           return;
         }
 
         const bookingSnap = await getDoc(doc(db, 'bookings', bookingId));
         if (!bookingSnap.exists()) {
-          setIsBookingConfirmed(false);
+          if (isActive) setIsBookingConfirmed(false);
           return;
         }
 
         const bookingStatus = String((bookingSnap.data() as any)?.status || '').toLowerCase();
         if (bookingStatus !== 'confirmed') {
-          setIsBookingConfirmed(false);
+          if (isActive) setIsBookingConfirmed(false);
           return;
         }
 
         const currentCode = await ensureCheckInCodeForCurrentUser();
+        if (!isActive) return;
         setCode(currentCode);
         setIsBookingConfirmed(true);
       } finally {
-        setLoading(false);
+        if (isActive) setLoading(false);
       }
+    })();
+
+    return () => {
+      isActive = false;
     };
-    loadCode();
-  }, []);
+  }, [bookingId]);
 
   const qrValue = bookingId && code && isBookingConfirmed
     ? `forsa_checkin_booking:${bookingId}:${code}`

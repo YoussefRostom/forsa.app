@@ -69,7 +69,7 @@ const SignupPlayer = () => {
   const [position, setPosition] = useState('');
   const [altPositions, setAltPositions] = useState<string[]>([]);
   const [highlightVideo, setHighlightVideo] = useState('');
-  const [preferredFoot, setPreferredFoot] = useState('');
+  const [preferredFoot] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -98,7 +98,7 @@ const SignupPlayer = () => {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   // Format date for display
   const formatDate = (date: Date | null): string => {
@@ -489,7 +489,8 @@ const SignupPlayer = () => {
           <ScrollView
             ref={scrollViewRef}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="none"
             showsVerticalScrollIndicator={false}
           >
             {formError && (
@@ -612,8 +613,13 @@ const SignupPlayer = () => {
                     style={[styles.inputWrapper, focusedField === 'dob' && styles.inputWrapperFocused, styles.datePickerWrapper, missing.dob && styles.inputWrapperError]}
                     onPress={() => { setFocusedField('dob'); setShowDatePicker(true); }}
                   >
-                    <Ionicons name="calendar-outline" size={20} color="#999" style={styles.inputIcon} />
-                    <Text style={[styles.dateText, !dob && styles.datePlaceholder]}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color={dob ? '#1d4ed8' : '#64748b'}
+                      style={styles.inputIcon}
+                    />
+                    <Text style={[styles.dateText, dob ? styles.dateTextSelected : styles.datePlaceholder]}>
                       {dob ? formatDate(dob) : i18n.t('dob_ph') || 'Select date of birth'}
                     </Text>
                   </TouchableOpacity>
@@ -1215,11 +1221,6 @@ const styles = StyleSheet.create({
   inputWrapperFocused: {
     borderColor: '#111827',
     backgroundColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
   },
   inputWrapperError: {
     borderColor: '#ff3b30',
@@ -1308,15 +1309,21 @@ const styles = StyleSheet.create({
   },
   datePickerWrapper: {
     justifyContent: 'space-between',
+    backgroundColor: '#eff6ff',
+    borderColor: '#bfdbfe',
   },
   dateText: {
     flex: 1,
     fontSize: 16,
-    color: '#000',
+    color: '#1e293b',
     paddingVertical: 16,
   },
+  dateTextSelected: {
+    color: '#1d4ed8',
+    fontWeight: '600',
+  },
   datePlaceholder: {
-    color: '#999',
+    color: '#64748b',
   },
   iosDatePickerModal: {
     position: 'absolute',

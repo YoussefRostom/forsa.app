@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useRef } from 'react';
-import { FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
+import { FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
@@ -28,6 +28,12 @@ export default function AcademyChatScreen() {
   const contact = params.contact || i18n.t('academyChat');
   const flatListRef = useRef<FlatList>(null);
 
+  const scrollToConversationEnd = () => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
   // Initialize conversation and subscribe to messages
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
@@ -48,22 +54,18 @@ export default function AcademyChatScreen() {
           return;
         }
 
-        // Mark messages as read when opening chat
-        if (convId) {
-          await markMessagesAsRead(convId);
-        }
-
         // Subscribe to real-time messages
         if (convId) {
           unsubscribe = subscribeToMessages(convId, (msgs) => {
             setMessages(msgs);
             setLoading(false);
-            // Scroll to end when new messages arrive
-            setTimeout(() => {
-              if (flatListRef.current && msgs.length > 0) {
-                flatListRef.current.scrollToEnd({ animated: true });
-              }
-            }, 100);
+            if (msgs.length > 0) {
+              scrollToConversationEnd();
+            }
+          });
+
+          markMessagesAsRead(convId).catch((error) => {
+            console.warn('Failed to mark academy chat messages as read on open:', error);
           });
         }
       } catch (error: any) {
@@ -83,23 +85,34 @@ export default function AcademyChatScreen() {
 
   useEffect(() => {
     if (flatListRef.current && messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
+      scrollToConversationEnd();
     }
   }, [messages]);
 
   const handleSendMessage = async () => {
     if (sending || !input.trim() || !conversationIdState) return;
     const message = input.trim();
+    const optimisticMessage: Message = {
+      id: `local-${Date.now()}`,
+      conversationId: conversationIdState,
+      senderId: auth.currentUser?.uid || '',
+      content: message,
+      senderName: auth.currentUser?.displayName || auth.currentUser?.email || 'You',
+      senderPhoto: auth.currentUser?.photoURL || undefined,
+      isRead: false,
+      createdAt: { toDate: () => new Date() },
+    };
+
     setSending(true);
     setInput('');
+    setMessages((prev) => [...prev, optimisticMessage]);
+    scrollToConversationEnd();
     Keyboard.dismiss();
 
     try {
       await sendMessage(conversationIdState, message);
-      await markMessagesAsRead(conversationIdState);
     } catch (error: any) {
+      setMessages((prev) => prev.filter((item) => item.id !== optimisticMessage.id));
       console.error('Error sending message:', error);
     } finally {
       setSending(false);

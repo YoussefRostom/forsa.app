@@ -2,13 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
-import DateTimePickerModal from "react-native-modal-datetime-picker";
+import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { notifyProviderAndAdmins, createNotification } from '../services/NotificationService';
-import { upsertBookingTransaction } from '../services/MonetizationService';
+import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
+import { doc, getDoc } from 'firebase/firestore';
+import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
 
 export default function ParentClinicDetailsScreen() {
   const params = useLocalSearchParams();
@@ -18,20 +18,101 @@ export default function ParentClinicDetailsScreen() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [selectedServiceIndex, setSelectedServiceIndex] = useState(0);
   const [selectedDoctorIndex, setSelectedDoctorIndex] = useState(0);
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [bookingComments, setBookingComments] = useState('');
   const [preferredTime, setPreferredTime] = useState<Date | null>(null);
+  const [pendingPreferredDate, setPendingPreferredDate] = useState<Date | null>(null);
   const [selectedShift, setSelectedShift] = useState<'Day' | 'Night' | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const cityLabels = i18n.t('cities', { returnObjects: true }) as Record<string, string>;
+  const resolvedPreferredTime = preferredTime && preferredTime.getTime() > Date.UTC(2000, 0, 1) ? preferredTime : null;
+  const pendingPreferredDateLabel = (pendingPreferredDate || resolvedPreferredTime || new Date()).toLocaleDateString([], {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  const formattedPreferredTime = resolvedPreferredTime
+    ? resolvedPreferredTime.toLocaleString([], {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : null;
+
+  const openDateTimePicker = () => {
+    setPendingPreferredDate(resolvedPreferredTime || new Date());
+    setShowDatePicker(true);
+  };
 
   const hideDatePicker = () => {
+    setShowDatePicker(false);
     setShowTimePicker(false);
   };
 
-  const handleConfirm = (date: Date) => {
-    setPreferredTime(date);
-    hideDatePicker();
+  const handleDateSelected = (nextDate: Date) => {
+    setPendingPreferredDate(nextDate);
+    setShowDatePicker(false);
+    setShowTimePicker(true);
+  };
+
+  const handleDatePickerChange = (event: DateTimePickerEvent, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+
+      if (event.type !== 'set' || !date) {
+        return;
+      }
+
+      handleDateSelected(date);
+      return;
+    }
+
+    if (date) {
+      setPendingPreferredDate(date);
+    }
+  };
+
+  const applySelectedTime = (date: Date) => {
+    const baseDate = pendingPreferredDate || resolvedPreferredTime || new Date();
+    const nextDate = new Date(baseDate);
+    nextDate.setHours(date.getHours(), date.getMinutes(), 0, 0);
+
+    setPreferredTime(nextDate.getTime() > Date.UTC(2000, 0, 1) ? nextDate : null);
+    setPendingPreferredDate(null);
+    setShowDatePicker(false);
+    setShowTimePicker(false);
+  };
+
+  const handleTimePickerChange = (event: DateTimePickerEvent, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+
+      if (event.type !== 'set' || !date) {
+        return;
+      }
+
+      applySelectedTime(date);
+      return;
+    }
+
+    if (date) {
+      const baseDate = pendingPreferredDate || resolvedPreferredTime || new Date();
+      const nextDate = new Date(baseDate);
+      nextDate.setHours(date.getHours(), date.getMinutes(), 0, 0);
+      setPendingPreferredDate(nextDate);
+    }
+  };
+
+  const confirmIosDate = () => {
+    handleDateSelected(pendingPreferredDate || resolvedPreferredTime || new Date());
+  };
+
+  const confirmIosTime = () => {
+    applySelectedTime(pendingPreferredDate || resolvedPreferredTime || new Date());
   };
 
   useEffect(() => {
@@ -45,7 +126,15 @@ export default function ParentClinicDetailsScreen() {
     if (params.id) {
       fetchClinicDetails(params.id as string);
     }
-  }, [params.id]);
+  }, [fadeAnim, params.id]);
+
+  const branches = normalizeBookingBranches(clinic?.locations);
+  const selectedBranch = branches.find((branch) => branch.id === selectedBranchId) || null;
+
+  useEffect(() => {
+    const defaultBranchId = branches[0]?.id || '';
+    setSelectedBranchId((current) => (branches.some((branch) => branch.id === current) ? current : defaultBranchId));
+  }, [clinic]);
 
   const fetchClinicDetails = async (id: string) => {
     try {
@@ -278,6 +367,11 @@ export default function ParentClinicDetailsScreen() {
       return;
     }
 
+    if (branches.length > 0 && !selectedBranch) {
+      Alert.alert(i18n.t('error') || 'Error', i18n.t('selectBranch') || 'Please select a branch');
+      return;
+    }
+
     const selectedDoctor =
       doctor ?? (clinic.doctors && clinic.doctors.length > 0 ? clinic.doctors[selectedDoctorIndex] : null);
     const doctorName = selectedDoctor || (i18n.t('noSpecificDoctor') || 'No specific doctor');
@@ -296,7 +390,7 @@ export default function ParentClinicDetailsScreen() {
           const userData = userDoc.data();
           parentName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || parentName;
         }
-      } catch (err) { }
+      } catch { }
 
       const bookingData = {
         parentId: user.uid,
@@ -305,12 +399,13 @@ export default function ParentClinicDetailsScreen() {
         providerId: clinic.id,
         type: 'clinic',
         status: 'pending',
-        date: preferredTime ? preferredTime.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        time: preferredTime ? preferredTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
-        preferredTime: preferredTime ? preferredTime.toISOString() : null,
+        date: resolvedPreferredTime ? getLocalDateInput(resolvedPreferredTime) : getLocalDateInput(),
+        time: resolvedPreferredTime ? resolvedPreferredTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+        preferredTime: resolvedPreferredTime ? resolvedPreferredTime.toISOString() : null,
         createdAt: new Date().toISOString(),
         name: clinic.name,
-        city: clinic.city,
+        city: selectedBranch?.city || clinic.city,
+        ...buildBookingBranchPayload(selectedBranch),
         doctor: doctorName,
         service: serviceName,
         price: servicePrice,
@@ -318,28 +413,7 @@ export default function ParentClinicDetailsScreen() {
         comments: bookingComments.trim() || null,
       };
 
-      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
-      await upsertBookingTransaction(bookingRef.id, bookingData, user.uid, 'Parent clinic booking created');
-      const providerId = clinic.id;
-      try {
-        await notifyProviderAndAdmins(
-          providerId,
-          i18n.t('newBookingRequest') || 'New booking request',
-          `${i18n.t('parent') || 'Parent'} ${i18n.t('requestedBooking') || 'requested a booking'}: ${serviceName}`,
-          'booking',
-          { bookingId: bookingRef.id },
-          user.uid
-        );
-        await createNotification({
-          userId: user.uid,
-          title: i18n.t('bookingRequestSent') || 'Booking request sent',
-          body: `${clinic.name} – ${doctorName}, ${serviceName}`,
-          type: 'booking',
-          data: { bookingId: bookingRef.id },
-        });
-      } catch (e) {
-        console.warn('Notification create failed:', e);
-      }
+      await createBookingWithTransaction(bookingData, user.uid, 'Parent clinic booking created');
 
       Alert.alert(
         i18n.t('success') || 'Success',
@@ -348,7 +422,8 @@ export default function ParentClinicDetailsScreen() {
       );
     } catch (error) {
       console.error('Error creating booking:', error);
-      Alert.alert(i18n.t('error'), i18n.t('bookingFailed') || 'Failed to create booking');
+      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
+      Alert.alert(i18n.t('error'), message);
     } finally {
       setBookingLoading(false);
     }
@@ -594,25 +669,118 @@ export default function ParentClinicDetailsScreen() {
                 <Text style={styles.bookingHint}>{i18n.t('noDoctorsListed') || 'No doctors listed'}</Text>
               )}
 
+              {branches.length > 0 && (
+                <>
+                  <Text style={styles.bookingLabel}>{i18n.t('selectBranch') || 'Select branch'}</Text>
+                  <View style={styles.branchOptions}>
+                    {branches.map((branch) => {
+                      const addressLine = getBranchAddressLine(branch);
+                      const isSelected = selectedBranchId === branch.id;
+                      return (
+                        <TouchableOpacity
+                          key={branch.id}
+                          style={[styles.branchOption, isSelected && styles.branchOptionSelected]}
+                          onPress={() => setSelectedBranchId(branch.id)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.branchOptionTitle, isSelected && styles.branchOptionTitleSelected]}>{branch.name}</Text>
+                          {!!addressLine && <Text style={[styles.branchOptionSubtitle, isSelected && styles.branchOptionSubtitleSelected]}>{addressLine}</Text>}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
+
               <Text style={styles.bookingLabel}>{i18n.t('preferredDateTime') || 'Preferred Date & Time'}</Text>
               <TouchableOpacity
                 style={styles.timePickerContainer}
-                onPress={() => setShowTimePicker(true)}
+                onPress={openDateTimePicker}
               >
-                <Ionicons name="calendar-outline" size={20} color="#666" style={styles.timeIcon} />
-                <Text style={[styles.timeText, !preferredTime && styles.timePlaceholder]}>
-                  {preferredTime ? preferredTime.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (i18n.t('selectDateAndTime') || 'Select preferred date & time')}
+                <Ionicons name="calendar-outline" size={20} color="#0f766e" style={styles.timeIcon} />
+                <Text style={[styles.timeText, !resolvedPreferredTime && styles.timePlaceholder]}>
+                  {formattedPreferredTime || (i18n.t('selectDateAndTime') || 'Select preferred date & time')}
                 </Text>
               </TouchableOpacity>
               
-              <DateTimePickerModal
-                isVisible={showTimePicker}
-                mode="datetime"
-                date={preferredTime || new Date()}
-                onConfirm={handleConfirm}
-                onCancel={hideDatePicker}
-                textColor="#000"
-              />
+              {showDatePicker && Platform.OS === 'android' && (
+                <DateTimePicker
+                  value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                  mode="date"
+                  display="default"
+                  onChange={handleDatePickerChange}
+                  minimumDate={new Date()}
+                />
+              )}
+
+              {showTimePicker && Platform.OS === 'android' && (
+                <DateTimePicker
+                  value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                  mode="time"
+                  display="default"
+                  onChange={handleTimePickerChange}
+                />
+              )}
+
+              {Platform.OS === 'ios' && showDatePicker && (
+                <Modal
+                  visible={true}
+                  transparent={true}
+                  animationType="slide"
+                  onRequestClose={hideDatePicker}
+                >
+                  <View style={styles.pickerModalBackdrop}>
+                    <View style={styles.pickerModalSheet}>
+                      <View style={styles.pickerModalActions}>
+                        <TouchableOpacity onPress={hideDatePicker}>
+                          <Text style={styles.pickerModalCancelText}>{i18n.t('cancel') || 'Cancel'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={confirmIosDate}>
+                          <Text style={styles.pickerModalConfirmText}>{i18n.t('ok') || 'Confirm'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <DateTimePicker
+                        value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                        mode="date"
+                        display="spinner"
+                        onChange={handleDatePickerChange}
+                        minimumDate={new Date()}
+                        textColor="#000"
+                      />
+                    </View>
+                  </View>
+                </Modal>
+              )}
+
+              {Platform.OS === 'ios' && showTimePicker && (
+                <Modal
+                  visible={true}
+                  transparent={true}
+                  animationType="slide"
+                  onRequestClose={hideDatePicker}
+                >
+                  <View style={styles.pickerModalBackdrop}>
+                    <View style={styles.pickerModalSheet}>
+                      <View style={styles.pickerModalActions}>
+                        <TouchableOpacity onPress={hideDatePicker}>
+                          <Text style={styles.pickerModalCancelText}>{i18n.t('cancel') || 'Cancel'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={confirmIosTime}>
+                          <Text style={styles.pickerModalConfirmText}>{i18n.t('ok') || 'Confirm'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.pickerModalSelectedDate}>{pendingPreferredDateLabel}</Text>
+                      <DateTimePicker
+                        value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                        mode="time"
+                        display="spinner"
+                        onChange={handleTimePickerChange}
+                        textColor="#000"
+                      />
+                    </View>
+                  </View>
+                </Modal>
+              )}
 
               <Text style={styles.bookingLabel}>{i18n.t('shiftPreference') || 'Shift Preference'}</Text>
               <View style={{flexDirection: 'row', gap: 12, marginBottom: 16}}>
@@ -646,17 +814,18 @@ export default function ParentClinicDetailsScreen() {
               <View style={styles.bookingSummaryCard}>
                 <Text style={styles.bookingSummaryTitle}>{i18n.t('reviewBooking') || 'Review Before Sending'}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('clinicNameLabel') || 'Clinic'}: {clinic.name}</Text>
+                {selectedBranch ? <Text style={styles.bookingSummaryText}>{i18n.t('branch') || 'Branch'}: {getBranchSummary(selectedBranch)}</Text> : null}
                 <Text style={styles.bookingSummaryText}>{i18n.t('service') || 'Service'}: {reviewService?.name || (i18n.t('notSelectedYet') || 'Not selected yet')}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('doctor') || 'Doctor'}: {reviewDoctor}</Text>
-                <Text style={styles.bookingSummaryText}>{i18n.t('preferredDateTime') || 'Preferred Date & Time'}: {preferredTime ? preferredTime.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (i18n.t('notSelectedYet') || 'Not selected yet')}</Text>
+                <Text style={styles.bookingSummaryText}>{i18n.t('preferredDateTime') || 'Preferred Date & Time'}: {formattedPreferredTime || (i18n.t('notSelectedYet') || 'Not selected yet')}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('shiftPreference') || 'Shift Preference'}: {selectedShift ? (selectedShift === 'Day' ? (i18n.t('dayShift') || 'Before 3PM') : (i18n.t('nightShift') || 'After 3PM')) : (i18n.t('notSelectedYet') || 'Not selected yet')}</Text>
                 <Text style={styles.bookingSummaryText}>{i18n.t('fee') || 'Fee'}: {reviewPrice ? `${reviewPrice} EGP` : '—'}</Text>
               </View>
 
               <TouchableOpacity
-                style={[styles.reserveButton, (bookingLoading || !selectedShift || !preferredTime) && styles.reserveButtonDisabled]}
+                style={[styles.reserveButton, (bookingLoading || !selectedShift || !resolvedPreferredTime) && styles.reserveButtonDisabled]}
                 onPress={() => handleReserve()}
-                disabled={bookingLoading || !clinic.services || clinic.services.length === 0 || !selectedShift || !preferredTime}
+                disabled={bookingLoading || !clinic.services || clinic.services.length === 0 || !selectedShift || !resolvedPreferredTime}
                 activeOpacity={0.8}
               >
                 {bookingLoading ? (
@@ -1016,6 +1185,38 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 4,
   },
+  branchOptions: {
+    marginBottom: 12,
+    gap: 8,
+  },
+  branchOption: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: '#fafafa',
+  },
+  branchOptionSelected: {
+    borderColor: '#000',
+    backgroundColor: '#f3f4f6',
+  },
+  branchOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  branchOptionTitleSelected: {
+    color: '#000',
+  },
+  branchOptionSubtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
+  branchOptionSubtitleSelected: {
+    color: '#374151',
+  },
   serviceOptions: {
     marginBottom: 12,
   },
@@ -1044,10 +1245,47 @@ const styles = StyleSheet.create({
     color: '#000',
   },
   bookingHint: { fontSize: 14, color: '#666', fontStyle: 'italic', marginBottom: 12 },
-  timePickerContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 14, marginBottom: 16, backgroundColor: '#f9f9f9' },
+  timePickerContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#99f6e4', borderRadius: 12, padding: 14, marginBottom: 16, backgroundColor: '#ecfeff' },
   timeIcon: { marginRight: 10 },
-  timeText: { fontSize: 15, color: '#000', flex: 1 },
-  timePlaceholder: { color: '#999' },
+  timeText: { fontSize: 15, color: '#115e59', flex: 1 },
+  timePlaceholder: { color: '#0f766e' },
+  pickerModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    justifyContent: 'flex-end',
+  },
+  pickerModalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingBottom: 20,
+  },
+  pickerModalActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+  pickerModalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  pickerModalConfirmText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f766e',
+  },
+  pickerModalSelectedDate: {
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#115e59',
+    textAlign: 'center',
+  },
   commentsInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, fontSize: 15, color: '#000', minHeight: 80, textAlignVertical: 'top' },
   bookingSummaryCard: {
     marginTop: 14,

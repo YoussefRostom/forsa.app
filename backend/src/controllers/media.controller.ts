@@ -265,7 +265,7 @@ export async function deleteMedia(req: Request, res: Response): Promise<void> {
 /**
  * Get upload limits configuration
  */
-export async function getUploadLimits(req: Request, res: Response): Promise<void> {
+export async function getUploadLimits(_req: Request, res: Response): Promise<void> {
   try {
     sendSuccess(res, {
       video: {

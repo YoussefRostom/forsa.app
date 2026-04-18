@@ -22,6 +22,7 @@ import { auth, db } from "../lib/firebase";
 import { normalizePhoneForAuth, normalizePhoneForTwilio } from "../lib/validations";
 import { lookupEmailIndex } from "../lib/emailIndex";
 import { lookupPhoneIndex } from "../lib/phoneIndex";
+import { isExpectedNetworkError } from "../lib/networkErrors";
 import i18n from "../locales/i18n";
 import { useAuth } from "../context/AuthContext";
 
@@ -30,6 +31,8 @@ type Errors = {
   password?: string;
   submit?: string;
 };
+
+const VALID_APP_ROLES = ['user', 'admin', 'player', 'parent', 'agent', 'academy', 'clinic'] as const;
 
 const SignInScreen = () => {
   const router = useRouter();
@@ -58,7 +61,7 @@ const SignInScreen = () => {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   // Validation function
   const validate = () => {
@@ -168,6 +171,10 @@ const SignInScreen = () => {
       try {
         userDoc = await getDoc(doc(db, "users", user.uid));
       } catch (e: any) {
+        if (isExpectedNetworkError(e)) {
+          throw new Error("Login succeeded, but your profile could not load because the device is offline.");
+        }
+
         console.error(
           "🔥 Failed to load user profile from Firestore:",
           e?.code ?? "unknown",
@@ -190,8 +197,12 @@ const SignInScreen = () => {
         throw new Error("Your account has been suspended. Please contact support.");
       }
 
+      const safeRole = VALID_APP_ROLES.includes(role as (typeof VALID_APP_ROLES)[number])
+        ? (role as (typeof VALID_APP_ROLES)[number])
+        : 'user';
+
       // Use the Integrated AuthContext for role-based navigation and state
-      await login(authEmail, role === "admin" ? "admin" : (role as any || "user"));
+      await login(authEmail, safeRole);
 
       // ✅ Navigate based on role
       if (role === "admin") {
@@ -214,13 +225,16 @@ const SignInScreen = () => {
             router.replace("/clinic-feed");
             break;
           default:
-            Alert.alert("Error", "Unknown role");
+            // Fail-safe: keep user in app even if role is malformed in Firestore.
+            router.replace("/player-feed");
         }
       }
 
     } catch (err: any) {
       let errorMessage = i18n.t("loginFailed") || "Login failed";
-      if (err.code === "auth/user-not-found") {
+      if (isExpectedNetworkError(err)) {
+        errorMessage = "Unable to sign in while offline. Please check your Internet connection and try again.";
+      } else if (err.code === "auth/user-not-found") {
         errorMessage = i18n.t("userNotFound") || "User not found";
       } else if (err.code === "auth/wrong-password") {
         errorMessage = i18n.t("incorrectPassword") || "Incorrect password";
@@ -235,14 +249,16 @@ const SignInScreen = () => {
       }
       setErrors({ submit: errorMessage });
       Alert.alert(i18n.t("loginFailed") || "Login failed", errorMessage);
-      // Avoid logging raw Error objects in Expo/Hermes on Windows — it can trigger Metro
-      // symbolication attempts against the pseudo-file `InternalBytecode.js` and spam ENOENT.
-      console.error(
-        "❌ Login error:",
-        err?.code ?? "unknown",
-        err?.message ?? String(err)
-      );
-      console.error("❌ Attempted identifier:", authEmail);
+      if (!isExpectedNetworkError(err)) {
+        // Avoid logging raw Error objects in Expo/Hermes on Windows — it can trigger Metro
+        // symbolication attempts against the pseudo-file `InternalBytecode.js` and spam ENOENT.
+        console.error(
+          "❌ Login error:",
+          err?.code ?? "unknown",
+          err?.message ?? String(err)
+        );
+        console.error("❌ Attempted identifier:", authEmail);
+      }
     } finally {
       setLoading(false);
     }

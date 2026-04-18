@@ -1,16 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
+import { formatBookingBranch } from '../lib/bookingBranch';
+import { getBookingPublicId } from '../lib/bookingId';
 import i18n from '../locales/i18n';
 import { getBookingStatusMeta, matchesBookingStatusFilter } from '../lib/bookingStatus';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import { findAdminUserId } from '../services/MessagingService';
+import { getMonetizationSettings } from '../services/MonetizationService';
 
 type BookingItem = {
   id: string;
@@ -27,6 +30,8 @@ type BookingItem = {
   price?: number;
   createdAt?: string;
   updatedAt?: string;
+  branchName?: string;
+  branchAddress?: string;
 };
 
 export default function ClinicBookingsScreen() {
@@ -37,6 +42,8 @@ export default function ClinicBookingsScreen() {
   const [bookings, setBookings] = useState<BookingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [openingAdminChat, setOpeningAdminChat] = useState(false);
+  const [commissionSummary, setCommissionSummary] = useState({ booking: 15, walkIn: 15 });
 
   const getBookingSortTime = (booking: BookingItem): number => {
     const source: any = booking?.updatedAt ?? booking?.createdAt;
@@ -49,7 +56,7 @@ export default function ClinicBookingsScreen() {
     return Number.isNaN(parsed) ? 0 : parsed;
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) {
       setBookings([]);
@@ -82,6 +89,8 @@ export default function ClinicBookingsScreen() {
           price: d.price,
           createdAt: d.createdAt,
           updatedAt: d.updatedAt,
+          branchName: d.branchName,
+          branchAddress: d.branchAddress,
         });
       });
 
@@ -97,20 +106,7 @@ export default function ClinicBookingsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  const findAdminUserId = async () => {
-    try {
-      const adminQuery = query(collection(db, 'users'), where('role', '==', 'admin'));
-      const adminSnapshot = await getDocs(adminQuery);
-      if (!adminSnapshot.empty) {
-        return adminSnapshot.docs[0].id;
-      }
-    } catch (error) {
-      console.error('Error finding admin:', error);
-    }
-    return null;
-  };
+  }, []);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -119,15 +115,88 @@ export default function ClinicBookingsScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
+  }, [fadeAnim, fetchBookings]);
 
-    fetchBookings();
+  useEffect(() => {
+    void (async () => {
+      try {
+        const settings = await getMonetizationSettings();
+        setCommissionSummary({
+          booking: Number(settings.bookingCommission?.value || 15),
+          walkIn: Number(settings.walkInCommission?.value || 15),
+        });
+      } catch (error) {
+        console.warn('Failed to load clinic commission summary:', error);
+      }
+    })();
   }, []);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setBookings([]);
+      setLoading(false);
+      setRefreshing(false);
+      return () => {};
+    }
+
+    const bookingsQuery = query(
+      collection(db, 'bookings'),
+      where('providerId', '==', user.uid),
+      where('type', '==', 'clinic')
+    );
+
+    const unsubscribe = onSnapshot(
+      bookingsQuery,
+      () => {
+        void fetchBookings();
+      },
+      (error) => {
+        console.error('Error subscribing to clinic bookings:', error);
+        setLoading(false);
+        setRefreshing(false);
+      }
+    );
+
+    return unsubscribe;
+  }, [fetchBookings]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void fetchBookings();
+  }, [fetchBookings]);
 
   const filteredBookings = bookings.filter(b => matchesBookingStatusFilter(b.status, filter));
 
   const getStatusMeta = (status: string) => getBookingStatusMeta(status, i18n);
 
   const displayName = (b: BookingItem) => b.patientName || b.customerName || '—';
+
+  const openAdminChat = async () => {
+    if (openingAdminChat) return;
+
+    try {
+      setOpeningAdminChat(true);
+      const adminId = await findAdminUserId();
+      if (!adminId) {
+        Alert.alert('Error', 'No admin found');
+        return;
+      }
+      const conversationId = await startConversationWithUser(adminId);
+      router.push({
+        pathname: '/clinic-chat',
+        params: {
+          conversationId,
+          otherUserId: adminId,
+          contact: 'Admin'
+        }
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to start conversation');
+    } finally {
+      setOpeningAdminChat(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -203,9 +272,16 @@ export default function ClinicBookingsScreen() {
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
               refreshControl={
-                <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBookings(); }} tintColor="#fff" />
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
               }
             >
+              <View style={styles.commissionBanner}>
+                <Text style={styles.commissionBannerTitle}>{i18n.t('commissionSettings') || 'Commission Settings'}</Text>
+                <Text style={styles.commissionBannerText}>
+                  {(i18n.t('bookingCommission') || 'Booking Commission')}: {commissionSummary.booking}%  |  {(i18n.t('walkInCommission') || 'Walk-in Commission')}: {commissionSummary.walkIn}%
+                </Text>
+              </View>
+
               {filteredBookings.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Ionicons name="calendar-outline" size={64} color="rgba(255, 255, 255, 0.3)" />
@@ -233,7 +309,17 @@ export default function ClinicBookingsScreen() {
                       </Text>
                     ) : null}
 
+                    <View style={styles.bookingIdBadge}>
+                      <Text style={styles.bookingIdText}>{i18n.t('bookingId') || 'Booking ID'}: {getBookingPublicId(booking)}</Text>
+                    </View>
+
                     <View style={styles.bookingDetails}>
+                      {formatBookingBranch(booking) ? (
+                        <View style={styles.detailRow}>
+                          <Ionicons name="location-outline" size={18} color="rgba(255,255,255,0.7)" />
+                          <Text style={styles.detailText}>{i18n.t('branch') || 'Branch'}: {formatBookingBranch(booking)}</Text>
+                        </View>
+                      ) : null}
                       {(booking.service || booking.doctor) && (
                         <View style={styles.detailRow}>
                           <Ionicons name="medical" size={18} color="rgba(255,255,255,0.7)" />
@@ -260,31 +346,17 @@ export default function ClinicBookingsScreen() {
                     </View>
                     
                     <TouchableOpacity
-                      style={styles.chatButton}
-                      onPress={async () => {
-                        try {
-                          const adminId = await findAdminUserId();
-                          if (!adminId) {
-                            Alert.alert('Error', 'No admin found');
-                            return;
-                          }
-                          const conversationId = await startConversationWithUser(adminId);
-                          router.push({
-                            pathname: '/clinic-chat',
-                            params: {
-                              conversationId,
-                              otherUserId: adminId,
-                              contact: 'Admin'
-                            }
-                          });
-                        } catch (error: any) {
-                          Alert.alert('Error', error.message || 'Failed to start conversation');
-                        }
-                      }}
+                      style={[styles.chatButton, { opacity: openingAdminChat ? 0.6 : 1 }]}
+                      onPress={openAdminChat}
+                      disabled={openingAdminChat}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="chatbubbles" size={18} color="#000" />
-                      <Text style={styles.chatButtonText}>{i18n.t('chatToAdmin') || 'Chat to Admin'}</Text>
+                      {openingAdminChat ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <Ionicons name="chatbubbles" size={18} color="#000" />
+                      )}
+                      <Text style={styles.chatButtonText}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('chatToAdmin') || 'Chat to Admin')}</Text>
                     </TouchableOpacity>
                   </View>
                 ))
@@ -303,8 +375,8 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 24,
+    paddingTop: Platform.OS === 'ios' ? 52 : 34,
+    paddingBottom: 16,
     paddingHorizontal: 24,
   },
   menuButton: {
@@ -325,22 +397,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 44,
   },
   headerTitle: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 2,
     textAlign: 'center',
   },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: 'rgba(255, 255, 255, 0.7)',
     textAlign: 'center',
   },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: 24,
-    marginBottom: 24,
-    gap: 8,
+    marginBottom: 16,
+    gap: 6,
     flexWrap: 'wrap',
   },
   filterButton: {
@@ -349,15 +421,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    gap: 6,
+    gap: 5,
   },
   filterButtonActive: { backgroundColor: '#fff' },
-  filterButtonText: { fontSize: 14, fontWeight: '600', color: '#666' },
+  filterButtonText: { fontSize: 13, fontWeight: '600', color: '#666' },
   filterButtonTextActive: { color: '#000' },
+  commissionBanner: {
+    marginHorizontal: 24,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(37, 99, 235, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.35)',
+  },
+  commissionBannerTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  commissionBannerText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    lineHeight: 18,
+  },
   scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   emptyContainer: {
@@ -411,6 +504,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusText: { fontSize: 12, fontWeight: 'bold', color: '#fff' },
+  bookingIdBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  bookingIdText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    color: '#fff',
+  },
   bookingDetails: { gap: 12, marginBottom: 16 },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   detailText: { fontSize: 16, color: 'rgba(255, 255, 255, 0.8)' },

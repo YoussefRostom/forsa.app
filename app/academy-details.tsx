@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, findNodeHandle, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { doc, getDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
-import { notifyProviderAndAdmins, createNotification } from '../services/NotificationService';
-import { upsertBookingTransaction } from '../services/MonetizationService';
+import { ActivityIndicator, Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
 import { db, auth } from '../lib/firebase';
+import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches, recordMatchesBranch } from '../lib/bookingBranch';
 import i18n from '../locales/i18n';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -28,7 +28,7 @@ type Academy = {
   latitude?: number | null;
   longitude?: number | null;
   coordinates?: { latitude?: number | null; longitude?: number | null } | null;
-  locations?: Array<{
+  locations?: {
     label?: string;
     city?: string;
     district?: string;
@@ -36,7 +36,7 @@ type Academy = {
     mapUrl?: string | null;
     latitude?: number | null;
     longitude?: number | null;
-  }>;
+  }[];
   profilePhoto?: string;
 };
 
@@ -47,12 +47,6 @@ function formatTimeForDisplay(time24: string): string {
   const hours12 = hours % 12 || 12;
   return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
 }
-
-type RouteParams = {
-  params: {
-    academy: Academy;
-  };
-};
 
 export default function AcademyDetailsScreen() {
   const params = useLocalSearchParams();
@@ -65,6 +59,7 @@ export default function AcademyDetailsScreen() {
   const [images, setImages] = useState<any[]>([]);
   const [programs, setPrograms] = useState<any[]>([]);
   const [selectedAge, setSelectedAge] = useState<string>('');
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [ageModalVisible, setAgeModalVisible] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [privateBookingLoadingId, setPrivateBookingLoadingId] = useState<string | null>(null);
@@ -104,7 +99,7 @@ export default function AcademyDetailsScreen() {
     return cityLabels?.[city] || city;
   };
 
-  const buildLocationTarget = (location?: Academy['locations'] extends Array<infer T> ? T : never): Academy | null => {
+  const buildLocationTarget = (location?: NonNullable<Academy['locations']>[number]): Academy | null => {
     if (!academy) return null;
 
     const latitude = location?.latitude;
@@ -260,6 +255,14 @@ export default function AcademyDetailsScreen() {
     fetchAcademy();
   }, [params.academy]);
 
+  const branches = normalizeBookingBranches(academy?.locations);
+  const selectedBranch = branches.find((branch) => branch.id === selectedBranchId) || null;
+
+  useEffect(() => {
+    const defaultBranchId = branches[0]?.id || '';
+    setSelectedBranchId((current) => (branches.some((branch) => branch.id === current) ? current : defaultBranchId));
+  }, [academy]);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -283,6 +286,15 @@ export default function AcademyDetailsScreen() {
   // Helper to sort age keys numerically
   const availableAges = academy && academy.fees ? Object.keys(academy.fees).sort((a, b) => parseInt(a) - parseInt(b)) : [];
   const selectedPrice = selectedAge && academy && academy.fees ? (academy.fees[selectedAge] || 0) : 0;
+  const visiblePrivatePrograms = programs.filter((program) => {
+    if (program.type !== 'private_training') {
+      return false;
+    }
+    if (!selectedBranch) {
+      return true;
+    }
+    return recordMatchesBranch(program, selectedBranch);
+  });
 
   const handleReserve = async () => {
     if (!selectedAge) {
@@ -299,6 +311,11 @@ export default function AcademyDetailsScreen() {
       return;
     }
 
+    if (branches.length > 0 && !selectedBranch) {
+      Alert.alert(i18n.t('error') || 'Error', i18n.t('selectBranch') || 'Please select a branch');
+      return;
+    }
+
     const price = academy?.fees[selectedAge] || 0;
 
     try {
@@ -312,7 +329,7 @@ export default function AcademyDetailsScreen() {
           const userData = userDoc.data();
           playerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || playerName;
         }
-      } catch (err) {
+      } catch {
       }
 
       const slot = academy.schedule?.[selectedAge];
@@ -325,10 +342,11 @@ export default function AcademyDetailsScreen() {
         providerName: academy.name,
         type: 'academy',
         status: 'pending',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateInput(),
         createdAt: new Date().toISOString(),
         name: academy.name,
-        city: academy.city,
+        city: selectedBranch?.city || academy.city,
+        ...buildBookingBranchPayload(selectedBranch),
         ageGroup: selectedAge,
         program: `${selectedAge} years`,
         price: Number(price),
@@ -336,28 +354,7 @@ export default function AcademyDetailsScreen() {
         time: slot?.time || null,
       };
 
-      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
-      await upsertBookingTransaction(bookingRef.id, bookingData, user.uid, 'Academy booking created');
-      const providerId = academy.id;
-      try {
-        await notifyProviderAndAdmins(
-          providerId,
-          i18n.t('newBookingRequest') || 'New booking request',
-          `${playerName} ${i18n.t('requestedBooking') || 'requested a booking'}: ${selectedAge} ${i18n.t('years') || 'years'}`,
-          'booking',
-          { bookingId: bookingRef.id },
-          user.uid
-        );
-        await createNotification({
-          userId: user.uid,
-          title: i18n.t('bookingRequestSent') || 'Booking request sent',
-          body: `${academy.name} – ${selectedAge} ${i18n.t('years') || 'years'}`,
-          type: 'booking',
-          data: { bookingId: bookingRef.id },
-        });
-      } catch (e) {
-        console.warn('Notification create failed:', e);
-      }
+      await createBookingWithTransaction(bookingData, user.uid, 'Academy booking created');
 
       Alert.alert(
         i18n.t('reservation') || 'Reservation',
@@ -366,7 +363,8 @@ export default function AcademyDetailsScreen() {
       );
     } catch (error) {
       console.error('Error creating academy booking:', error);
-      Alert.alert(i18n.t('error'), i18n.t('bookingFailed') || 'Failed to create booking');
+      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
+      Alert.alert(i18n.t('error'), message);
     } finally {
       setBookingLoading(false);
     }
@@ -376,6 +374,11 @@ export default function AcademyDetailsScreen() {
     const user = auth.currentUser;
     if (!user) {
       Alert.alert(i18n.t('error'), i18n.t('loginRequired') || 'You must be logged in to book');
+      return;
+    }
+
+    if (branches.length > 0 && !selectedBranch) {
+      Alert.alert(i18n.t('error') || 'Error', i18n.t('selectBranch') || 'Please select a branch');
       return;
     }
 
@@ -390,7 +393,7 @@ export default function AcademyDetailsScreen() {
           const userData = userDoc.data();
           playerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || playerName;
         }
-      } catch (err) {
+      } catch {
       }
 
       const bookingData = {
@@ -403,10 +406,11 @@ export default function AcademyDetailsScreen() {
         type: 'academy',
         programId: program.id,
         status: 'pending',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateInput(),
         createdAt: new Date().toISOString(),
         name: academy!.name,
-        city: academy!.city,
+        city: selectedBranch?.city || academy!.city,
+        ...buildBookingBranchPayload(selectedBranch),
         program: program.name,
         coachName: program.coachName,
         sessionType: 'private',
@@ -414,37 +418,17 @@ export default function AcademyDetailsScreen() {
         duration: program.duration,
       };
 
-      const bookingRef = await addDoc(collection(db, 'bookings'), bookingData);
-      await upsertBookingTransaction(bookingRef.id, bookingData, user.uid, 'Private training booking created');
-      const providerId = academy!.id;
-      try {
-        await notifyProviderAndAdmins(
-          providerId,
-          i18n.t('newBookingRequest') || 'New booking request',
-          `${playerName} ${i18n.t('requestedPrivateTraining') || 'requested private training'}: ${program.name}`,
-          'booking',
-          { bookingId: bookingRef.id },
-          user.uid
-        );
-        await createNotification({
-          userId: user.uid,
-          title: i18n.t('bookingRequestSent') || 'Booking request sent',
-          body: `${academy!.name} – ${program.name} with ${program.coachName}`,
-          type: 'booking',
-          data: { bookingId: bookingRef.id },
-        });
-      } catch (e) {
-        console.warn('Notification create failed:', e);
-      }
+      await createBookingWithTransaction(bookingData, user.uid, 'Private training booking created');
 
       Alert.alert(
         i18n.t('bookingRequestSent') || 'Booking Request Sent',
         i18n.t('privateTrainingBookingDesc') || 'Your private training booking request has been sent. You will be notified once the academy responds.',
-        [{ text: 'OK', onPress: () => router.back() }]
+        [{ text: 'OK', onPress: () => router.push('/player-bookings') }]
       );
     } catch (error) {
       console.error('Private training booking error:', error);
-      Alert.alert(i18n.t('error'), i18n.t('bookingFailed') || 'Failed to send booking request. Please try again.');
+      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to send booking request. Please try again.');
+      Alert.alert(i18n.t('error'), message);
     } finally {
       setPrivateBookingLoadingId(null);
     }
@@ -524,11 +508,11 @@ export default function AcademyDetailsScreen() {
 
                 {!(Array.isArray(academy.locations) && academy.locations.length > 1) ? (
                   <View style={styles.mapActionsRow}>
-                    <TouchableOpacity style={styles.mapActionButton} onPress={handleViewOnMap}>
+                    <TouchableOpacity style={styles.mapActionButton} onPress={() => handleViewOnMap()}>
                       <Ionicons name="map-outline" size={18} color="#000" />
                       <Text style={styles.mapActionButtonText}>{i18n.t('viewOnMap') || 'View on map'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.mapActionButton, styles.mapActionButtonPrimary]} onPress={handleOpenInMaps}>
+                    <TouchableOpacity style={[styles.mapActionButton, styles.mapActionButtonPrimary]} onPress={() => handleOpenInMaps()}>
                       <Ionicons name="navigate-outline" size={18} color="#fff" />
                       <Text style={styles.mapActionButtonPrimaryText}>{i18n.t('openInMaps') || 'Open in Maps'}</Text>
                     </TouchableOpacity>
@@ -573,7 +557,7 @@ export default function AcademyDetailsScreen() {
             )}
 
             {academy.socialUrl ? (
-              <TouchableOpacity style={styles.section} onPress={() => openExternalLink(academy.socialUrl)}>
+              <TouchableOpacity style={styles.section} onPress={() => openExternalLink(academy.socialUrl ?? '')}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="link-outline" size={20} color="#000" />
                   <Text style={styles.sectionTitle}>{i18n.t('social_url') || 'Website / Social URL'}</Text>
@@ -652,6 +636,33 @@ export default function AcademyDetailsScreen() {
               </View>
             )}
 
+            {branches.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="location-outline" size={20} color="#000" />
+                  <Text style={styles.sectionTitle}>{i18n.t('selectBranch') || 'Select Branch'}</Text>
+                </View>
+                <Text style={styles.branchHelperText}>{i18n.t('chooseBranchForReservation') || 'Choose the branch for this reservation before booking.'}</Text>
+                <View style={styles.branchOptions}>
+                  {branches.map((branch) => {
+                    const addressLine = getBranchAddressLine(branch);
+                    const isSelected = selectedBranchId === branch.id;
+                    return (
+                      <TouchableOpacity
+                        key={branch.id}
+                        style={[styles.branchOption, isSelected && styles.branchOptionSelected]}
+                        onPress={() => setSelectedBranchId(branch.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.branchOptionTitle, isSelected && styles.branchOptionTitleSelected]}>{branch.name}</Text>
+                        {!!addressLine && <Text style={[styles.branchOptionSubtitle, isSelected && styles.branchOptionSubtitleSelected]}>{addressLine}</Text>}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             {/* Private Training Programs Section */}
             {programs.length > 0 && (
               <View style={styles.section}>
@@ -660,7 +671,7 @@ export default function AcademyDetailsScreen() {
                   <Text style={styles.sectionTitle}>{i18n.t('privateTraining') || 'Private Training'}</Text>
                 </View>
                 <View style={styles.programsContainer}>
-                  {programs.filter(p => p.type === 'private_training').map((program) => (
+                  {visiblePrivatePrograms.map((program) => (
                     <View key={program.id} style={styles.programCard}>
                       <View style={styles.programHeader}>
                         <Text style={styles.programName}>
@@ -695,7 +706,7 @@ export default function AcademyDetailsScreen() {
                         </Text>
                       </View>
                       <TouchableOpacity
-                        style={[styles.bookProgramButton, (bookingLoading || privateBookingLoadingId === program.id) && styles.bookProgramButtonDisabled]}
+                        style={[styles.bookProgramButton, (bookingLoading || privateBookingLoadingId === program.id) && { opacity: 0.6 }]}
                         onPress={() => handleBookPrivateTraining(program)}
                         activeOpacity={0.8}
                         disabled={bookingLoading || privateBookingLoadingId === program.id}
@@ -708,6 +719,9 @@ export default function AcademyDetailsScreen() {
                       </TouchableOpacity>
                     </View>
                   ))}
+                  {selectedBranch && visiblePrivatePrograms.length === 0 && (
+                    <Text style={styles.branchEmptyText}>{i18n.t('noPrivateTrainingForSelectedBranch') || 'No private trainers are available at this branch yet.'}</Text>
+                  )}
                 </View>
               </View>
             )}
@@ -767,6 +781,7 @@ export default function AcademyDetailsScreen() {
                     <View style={styles.bookingSummaryCard}>
                       <Text style={styles.bookingSummaryTitle}>{i18n.t('reviewBooking') || 'Review Before Sending'}</Text>
                       <Text style={styles.bookingSummaryText}>{academy.name}</Text>
+                      {selectedBranch ? <Text style={styles.bookingSummaryText}>{i18n.t('branch') || 'Branch'}: {getBranchSummary(selectedBranch)}</Text> : null}
                       <Text style={styles.bookingSummaryText}>{i18n.t('ageGroup') || 'Age Group'}: {selectedAge} {i18n.t('years') || 'years'}</Text>
                       <Text style={styles.bookingSummaryText}>{i18n.t('price') || 'Price'}: {selectedPrice} EGP</Text>
                       {academy.schedule?.[selectedAge]?.day ? <Text style={styles.bookingSummaryText}>{i18n.t('day') || 'Day'}: {i18n.t(academy.schedule[selectedAge].day) || academy.schedule[selectedAge].day}</Text> : null}
@@ -1007,6 +1022,52 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     marginBottom: 12,
+  },
+  branchHelperText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  branchOptions: {
+    gap: 12,
+  },
+  branchOption: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#fafafa',
+  },
+  branchOptionSelected: {
+    borderColor: '#000',
+    backgroundColor: '#f3f4f6',
+  },
+  branchOptionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  branchOptionTitleSelected: {
+    color: '#000',
+  },
+  branchOptionSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#6b7280',
+  },
+  branchOptionSubtitleSelected: {
+    color: '#374151',
+  },
+  branchEmptyText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#6b7280',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 14,
+    padding: 14,
   },
   descriptionText: {
     fontSize: 16,

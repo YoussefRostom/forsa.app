@@ -10,7 +10,7 @@ import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import PostActionsMenu from '../components/PostActionsMenu';
 import ZoomableFeedMedia from '../components/feed/ZoomableFeedMedia';
 import i18n from '../locales/i18n';
-import { db, auth } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import { getUserDisplayName } from '../services/AgentDataService';
 
 export default function AgentFeedScreen() {
@@ -74,7 +74,7 @@ export default function AgentFeedScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   React.useEffect(() => {
     setLoading(true);
@@ -171,7 +171,7 @@ export default function AgentFeedScreen() {
                   try {
                     const name = await getUserDisplayName(post.ownerId, post.ownerRole);
                     return { key: post.ownerId, name };
-                  } catch (err) {
+                  } catch {
                     // Silently handle errors when fetching user names
                     return null;
                   }

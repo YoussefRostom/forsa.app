@@ -8,12 +8,12 @@ import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { db } from '../lib/firebase';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
 const cityOptions = cities.filter(({ key }) => !['giza', 'newCairo'].includes(key));
 const ageGroups = Array.from({ length: 11 }, (_, i) => (7 + i).toString());
-const districtsByCity: Record<string, Array<{ key: string; label: string }>> = {
+const districtsByCity: Record<string, { key: string; label: string }[]> = {
   cairo: [
     { key: 'Maadi', label: 'Maadi' },
     { key: 'Nasr City', label: 'Nasr City' },
@@ -125,10 +125,6 @@ const getAcademyLocationCandidates = (academy: any): Coordinates[] => {
           candidate.latitude === coords.latitude && candidate.longitude === coords.longitude
       ) === index
   );
-};
-
-const getAcademyCoordinates = (academy: any): Coordinates | null => {
-  return getAcademyLocationCandidates(academy)[0] || null;
 };
 
 const getCityLabel = (value?: string) => {
@@ -389,7 +385,7 @@ export default function ParentSearchAcademiesScreen() {
       return [academy.id, nearestDistance] as const;
     });
 
-    setDistanceMap(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, number]>));
+    setDistanceMap(Object.fromEntries(entries.filter(Boolean) as (readonly [string, number])[]));
   };
 
   const handleSortSelection = async (sortKey: string) => {

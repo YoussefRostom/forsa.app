@@ -72,7 +72,7 @@ export default function Layout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <Sentry.ErrorBoundary fallback={({ resetError }) => <AppCrashFallback resetError={resetError} />}>
+          <Sentry.ErrorBoundary fallback={({ resetError }: { resetError: () => void }) => <AppCrashFallback resetError={resetError} />}>
             <PushNotificationBootstrap />
             <HamburgerMenuProvider>
               <ToastProvider>

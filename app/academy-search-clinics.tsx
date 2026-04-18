@@ -49,18 +49,7 @@ export default function AcademySearchClinicsScreen() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 600,
-      easing: Easing.out(Easing.exp),
-      useNativeDriver: true,
-    }).start();
-
-    fetchClinics();
-  }, []);
-
-  const fetchClinics = async (isRefresh = false) => {
+  const fetchClinics = React.useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) {
         setRefreshing(true);
@@ -114,7 +103,20 @@ export default function AcademySearchClinicsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      easing: Easing.out(Easing.exp),
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  useEffect(() => {
+    fetchClinics();
+  }, [fetchClinics]);
 
   const getServicePrice = (clinic: Clinic, selectedService: string): number => {
     if (!selectedService) return clinic.minPrice;

@@ -1,3 +1,4 @@
+import createQRCode from 'qrcode-generator';
 import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -19,7 +20,6 @@ type QRGeneratorInstance = {
 function buildMatrix(value: string) {
   // `qrcode-generator` is a tiny pure-JS QR encoder, which avoids the
   // native/SVG bundling issue from react-native-qrcode-svg on iOS.
-  const createQRCode = require('qrcode-generator');
   const qr: QRGeneratorInstance = createQRCode(0, 'M');
 
   qr.addData(value || 'forsa_checkin:unavailable');

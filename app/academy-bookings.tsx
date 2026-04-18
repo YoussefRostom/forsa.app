@@ -1,18 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
+import { formatBookingBranch } from '../lib/bookingBranch';
+import { getBookingPublicId } from '../lib/bookingId';
 import i18n from '../locales/i18n';
 import { getBookingStatusMeta, matchesBookingStatusFilter } from '../lib/bookingStatus';
 import { notifyBookingStatusChange } from '../lib/bookingNotifications';
 import { db, auth } from '../lib/firebase';
-import { collection, query, where, getDocs, updateDoc, doc, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import { findAdminUserId } from '../services/MessagingService';
-import { upsertBookingTransaction } from '../services/MonetizationService';
+import { getMonetizationSettings, upsertBookingTransaction } from '../services/MonetizationService';
 
 type BookingItem = {
   id: string;
@@ -37,6 +39,8 @@ type BookingItem = {
   trainerId?: string;
   trainerName?: string;
   proposedByAdmin?: boolean;
+  branchName?: string;
+  branchAddress?: string;
 };
 
 export default function AcademyBookingsScreen() {
@@ -48,8 +52,10 @@ export default function AcademyBookingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ id: string; type: 'accept' | 'reject' } | null>(null);
+  const [openingAdminChat, setOpeningAdminChat] = useState(false);
+  const [commissionSummary, setCommissionSummary] = useState({ booking: 15, walkIn: 15 });
 
-  const getBookingSortTime = (booking: BookingItem): number => {
+  const getBookingSortTime = useCallback((booking: BookingItem): number => {
     const source: any = booking?.updatedAt ?? booking?.createdAt;
     if (!source) return 0;
     if (typeof source?.toDate === 'function') {
@@ -58,9 +64,9 @@ export default function AcademyBookingsScreen() {
     if (typeof source === 'number') return source;
     const parsed = new Date(source).getTime();
     return Number.isNaN(parsed) ? 0 : parsed;
-  };
+  }, []);
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     const user = auth.currentUser;
     if (!user) {
       setBookings([]);
@@ -101,6 +107,8 @@ export default function AcademyBookingsScreen() {
             trainerId: d.trainerId,
             trainerName: d.trainerName,
             proposedByAdmin: d.proposedByAdmin,
+            branchName: d.branchName,
+            branchAddress: d.branchAddress,
           });
         });
       } catch (err) {
@@ -131,6 +139,8 @@ export default function AcademyBookingsScreen() {
             price: d.price,
             customerName: d.customerName,
             proposedByAdmin: d.proposedByAdmin,
+            branchName: d.branchName,
+            branchAddress: d.branchAddress,
           });
         });
       } catch (err) {
@@ -149,7 +159,7 @@ export default function AcademyBookingsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [getBookingSortTime]);
 
   const runBookingAction = async (
     bookingId: string,
@@ -183,7 +193,7 @@ export default function AcademyBookingsScreen() {
         });
       }
       Alert.alert(i18n.t('success') || 'Success', successMessage);
-    } catch (err: any) {
+    } catch {
       Alert.alert(i18n.t('error') || 'Error', i18n.t('failedToUpdateTiming') || 'Failed to update timing');
     } finally {
       setActionLoading(null);
@@ -198,6 +208,32 @@ export default function AcademyBookingsScreen() {
     await runBookingAction(bookingId, 'cancelled', i18n.t('timingRejectedSuccess') || 'Timing rejected successfully', 'reject');
   };
 
+  const openAdminChat = async () => {
+    if (openingAdminChat) return;
+
+    try {
+      setOpeningAdminChat(true);
+      const adminId = await findAdminUserId();
+      if (!adminId) {
+        Alert.alert('Error', 'No admin found');
+        return;
+      }
+      const conversationId = await startConversationWithUser(adminId);
+      router.push({
+        pathname: '/academy-chat',
+        params: {
+          conversationId,
+          otherUserId: adminId,
+          contact: 'Admin'
+        }
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to start conversation');
+    } finally {
+      setOpeningAdminChat(false);
+    }
+  };
+
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
@@ -205,9 +241,71 @@ export default function AcademyBookingsScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
+  }, [fadeAnim, fetchBookings]);
 
-    fetchBookings();
+  useEffect(() => {
+    void (async () => {
+      try {
+        const settings = await getMonetizationSettings();
+        setCommissionSummary({
+          booking: Number(settings.bookingCommission?.value || 15),
+          walkIn: Number(settings.walkInCommission?.value || 15),
+        });
+      } catch (error) {
+        console.warn('Failed to load academy commission summary:', error);
+      }
+    })();
   }, []);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      setBookings([]);
+      setLoading(false);
+      setRefreshing(false);
+      return () => {};
+    }
+
+    const providerQuery = query(
+      collection(db, 'bookings'),
+      where('providerId', '==', user.uid),
+      where('type', '==', 'academy')
+    );
+    const clinicQuery = query(
+      collection(db, 'bookings'),
+      where('academyId', '==', user.uid),
+      where('type', '==', 'clinic')
+    );
+
+    const unsubscribeProvider = onSnapshot(
+      providerQuery,
+      () => {
+        void fetchBookings();
+      },
+      (error) => {
+        console.error('Academy provider bookings subscription error:', error);
+        setLoading(false);
+        setRefreshing(false);
+      }
+    );
+
+    const unsubscribeClinic = onSnapshot(
+      clinicQuery,
+      () => {
+        void fetchBookings();
+      },
+      (error) => {
+        console.error('Academy clinic bookings subscription error:', error);
+        setLoading(false);
+        setRefreshing(false);
+      }
+    );
+
+    return () => {
+      unsubscribeProvider();
+      unsubscribeClinic();
+    };
+  }, [fetchBookings]);
 
   const filteredBookings = bookings.filter(b => matchesBookingStatusFilter(b.status, filter));
 
@@ -290,6 +388,13 @@ export default function AcademyBookingsScreen() {
                 <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchBookings(); }} tintColor="#fff" />
               }
             >
+              <View style={styles.commissionBanner}>
+                <Text style={styles.commissionBannerTitle}>{i18n.t('commissionSettings') || 'Commission Settings'}</Text>
+                <Text style={styles.commissionBannerText}>
+                  {(i18n.t('bookingCommission') || 'Booking Commission')}: {commissionSummary.booking}%  |  {(i18n.t('walkInCommission') || 'Walk-in Commission')}: {commissionSummary.walkIn}%
+                </Text>
+              </View>
+
               {filteredBookings.length === 0 ? (
                 <View style={styles.emptyContainer}>
                   <Ionicons name="calendar-outline" size={64} color="rgba(255, 255, 255, 0.3)" />
@@ -326,7 +431,17 @@ export default function AcademyBookingsScreen() {
                       </Text>
                     ) : null}
 
+                    <View style={styles.bookingIdBadge}>
+                      <Text style={styles.bookingIdText}>{i18n.t('bookingId') || 'Booking ID'}: {getBookingPublicId(booking)}</Text>
+                    </View>
+
                     <View style={styles.bookingDetails}>
+                      {formatBookingBranch(booking) ? (
+                        <View style={styles.detailRow}>
+                          <Ionicons name="location-outline" size={18} color="rgba(255,255,255,0.7)" />
+                          <Text style={styles.detailText}>{i18n.t('branch') || 'Branch'}: {formatBookingBranch(booking)}</Text>
+                        </View>
+                      ) : null}
                       {booking.type === 'academy' && booking.program && (
                         <View style={styles.detailRow}>
                           <Ionicons name="football" size={18} color="rgba(255,255,255,0.7)" />
@@ -406,31 +521,17 @@ export default function AcademyBookingsScreen() {
                     )}
 
                     <TouchableOpacity
-                      style={styles.chatButton}
-                      onPress={async () => {
-                        try {
-                          const adminId = await findAdminUserId();
-                          if (!adminId) {
-                            Alert.alert('Error', 'No admin found');
-                            return;
-                          }
-                          const conversationId = await startConversationWithUser(adminId);
-                          router.push({
-                            pathname: '/academy-chat',
-                            params: {
-                              conversationId,
-                              otherUserId: adminId,
-                              contact: 'Admin'
-                            }
-                          });
-                        } catch (error: any) {
-                          Alert.alert('Error', error.message || 'Failed to start conversation');
-                        }
-                      }}
+                      style={[styles.chatButton, { opacity: openingAdminChat ? 0.6 : 1 }]}
+                      onPress={openAdminChat}
+                      disabled={openingAdminChat}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="chatbubbles" size={18} color="#000" />
-                      <Text style={styles.chatButtonText}>{i18n.t('chatToAdmin') || 'Chat to Admin'}</Text>
+                      {openingAdminChat ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <Ionicons name="chatbubbles" size={18} color="#000" />
+                      )}
+                      <Text style={styles.chatButtonText}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('chatToAdmin') || 'Chat to Admin')}</Text>
                     </TouchableOpacity>
                   </View>
                 ))
@@ -449,8 +550,8 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 24,
+    paddingTop: Platform.OS === 'ios' ? 52 : 34,
+    paddingBottom: 16,
     paddingHorizontal: 24,
   },
   menuButton: {
@@ -471,22 +572,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 44,
   },
   headerTitle: {
-    fontSize: 32,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 2,
     textAlign: 'center',
   },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: 'rgba(255, 255, 255, 0.7)',
     textAlign: 'center',
   },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: 24,
-    marginBottom: 24,
-    gap: 8,
+    marginBottom: 16,
+    gap: 6,
     flexWrap: 'wrap',
   },
   filterButton: {
@@ -495,15 +596,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 16,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    gap: 6,
+    gap: 5,
   },
   filterButtonActive: { backgroundColor: '#fff' },
-  filterButtonText: { fontSize: 14, fontWeight: '600', color: '#666' },
+  filterButtonText: { fontSize: 13, fontWeight: '600', color: '#666' },
   filterButtonTextActive: { color: '#000' },
+  commissionBanner: {
+    marginHorizontal: 24,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: 'rgba(37, 99, 235, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.35)',
+  },
+  commissionBannerTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  commissionBannerText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    lineHeight: 18,
+  },
   scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   emptyContainer: {
@@ -559,6 +681,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   typeBadgeText: { fontSize: 12, color: 'rgba(255,255,255,0.9)' },
+  bookingIdBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  bookingIdText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
   statusBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,

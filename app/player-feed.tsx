@@ -81,7 +81,7 @@ export default function PlayerFeedScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   const [playerPosts, setPlayerPosts] = React.useState<any[]>([]);
   const [academyPosts, setAcademyPosts] = React.useState<any[]>([]);
@@ -188,7 +188,7 @@ export default function PlayerFeedScreen() {
           const getTs = (p: any) => p.timestamp?.seconds ?? p.createdAt?.seconds ?? 0;
           posts.sort((a, b) => getTs(b) - getTs(a));
           setAcademyPosts(posts);
-        } catch (e) {
+        } catch {
           setAcademyPosts([]);
         }
       }

@@ -5,11 +5,20 @@
 
 import Constants from 'expo-constants';
 
-// Static backend URL (update this when your PC's IP changes)
-const STATIC_BACKEND_URL = 'http://192.168.0.112:3000';
+const ENV_BACKEND_URL = typeof process.env.EXPO_PUBLIC_BACKEND_URL === 'string'
+  ? process.env.EXPO_PUBLIC_BACKEND_URL.trim()
+  : '';
+
+const BACKEND_CONFIG_ERROR = 'EXPO_PUBLIC_BACKEND_URL is required outside development.';
+const BACKEND_UNAVAILABLE_ERROR_CODE = 'backend-unavailable';
+const isDevelopmentRuntime = __DEV__;
+
+// Static backend URL fallback when runtime host detection is unavailable.
+const STATIC_BACKEND_URL = ENV_BACKEND_URL || (isDevelopmentRuntime ? 'http://192.168.1.31:3000' : '');
 
 // Backend port (default: 3000)
 const BACKEND_PORT = 3000;
+let cachedBackendUrl: string | null = null;
 
 /**
  * Get the local network IP address dynamically from Expo dev server
@@ -86,10 +95,52 @@ function isValidIP(ip: string): boolean {
  * This function is called at runtime, so it will always get the latest IP
  */
 export function getBackendUrl(): string {
-  const dynamicUrl = getLocalIP();
+  if (cachedBackendUrl) {
+    return cachedBackendUrl;
+  }
+
+  const dynamicUrl = isDevelopmentRuntime ? getLocalIP() : null;
   const finalUrl = dynamicUrl || STATIC_BACKEND_URL;
+  if (!finalUrl) {
+    throw new Error(BACKEND_CONFIG_ERROR);
+  }
   // console.log('[Config] Using backend URL:', finalUrl);
   return finalUrl;
+}
+
+export function getBackendUrlCandidates(): string[] {
+  const candidates = [
+    cachedBackendUrl,
+    isDevelopmentRuntime ? getLocalIP() : null,
+    STATIC_BACKEND_URL,
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+  return [...new Set(candidates.map((value) => value.trim()))];
+}
+
+export function rememberWorkingBackendUrl(url: string): void {
+  if (typeof url === 'string' && url.trim().length > 0) {
+    cachedBackendUrl = url.trim();
+  }
+}
+
+export function isBackendConfigured(): boolean {
+  return Boolean(cachedBackendUrl || STATIC_BACKEND_URL || (isDevelopmentRuntime ? getLocalIP() : null));
+}
+
+export function createBackendFeatureUnavailableError(featureName: string): Error {
+  const error = new Error(`${featureName} are unavailable in this app build because no production backend is configured yet.`);
+  (error as Error & { code?: string }).code = BACKEND_UNAVAILABLE_ERROR_CODE;
+  return error;
+}
+
+export function isBackendFeatureUnavailableError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: string }).code === BACKEND_UNAVAILABLE_ERROR_CODE
+  );
 }
 
 /**
@@ -103,7 +154,7 @@ export const BACKEND_URL = (() => {
   try {
     return getBackendUrl();
   } catch (error) {
-    console.warn('Error getting backend URL, using static URL:', error);
+    console.warn('Error getting backend URL:', error);
     return STATIC_BACKEND_URL;
   }
 })();
@@ -129,7 +180,16 @@ export function getBackendIP(): string | null {
  * Useful for connection validation before making API calls
  */
 export async function testBackendConnection(url?: string): Promise<boolean> {
-  const testUrl = url || getBackendUrl();
+  let testUrl = url;
+
+  if (!testUrl) {
+    try {
+      testUrl = getBackendUrl();
+    } catch {
+      return false;
+    }
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
@@ -140,6 +200,9 @@ export async function testBackendConnection(url?: string): Promise<boolean> {
     });
     
     clearTimeout(timeoutId);
+    if (response.ok) {
+      rememberWorkingBackendUrl(testUrl);
+    }
     return response.ok;
   } catch (error) {
     // If /health endpoint doesn't exist, try root endpoint
@@ -153,6 +216,9 @@ export async function testBackendConnection(url?: string): Promise<boolean> {
       });
       
       clearTimeout(timeoutId);
+      if (response.status < 500) {
+        rememberWorkingBackendUrl(testUrl);
+      }
       return response.status < 500; // Any response means server is reachable
     } catch {
       return false;

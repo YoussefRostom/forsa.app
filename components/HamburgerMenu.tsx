@@ -45,8 +45,12 @@ export default function HamburgerMenu() {
     // Clinic routes - but exclude search routes that players use
     // Only match actual clinic profile/feed routes, not search routes
     if (currentPath.includes('/clinic-feed') ||
+      currentPath.includes('/clinic-edit-profile') ||
+      currentPath.includes('/clinic-branches') ||
+      currentPath.includes('/clinic-edit-branch') ||
       currentPath.includes('/clinic-edit-services') ||
       currentPath.includes('/clinic-edit-timetable') ||
+      currentPath.includes('/clinic-upload-media') ||
       currentPath.includes('/clinic-bookings') ||
       currentPath.includes('/clinic-messages') ||
       currentPath.includes('/clinic-chat')) {
@@ -136,7 +140,8 @@ export default function HamburgerMenu() {
         { label: i18n.t('clinicFeed') || 'Clinic Feed', route: '/clinic-feed', icon: 'home-outline' },
         { label: 'Scan Check-in', route: '/scan-checkin', icon: 'qr-code-outline' },
         { label: i18n.t('notifications') || 'Notifications', route: '/notifications', icon: 'notifications-outline' },
-        { label: i18n.t('editServices') || 'Edit Services', route: '/clinic-edit-services', icon: 'list-outline' },
+        { label: i18n.t('clinicEditProfile') || 'Edit Profile', route: '/clinic-edit-profile', icon: 'create-outline' },
+        { label: i18n.t('uploadMedia') || 'Upload Media', route: '/clinic-upload-media', icon: 'cloud-upload-outline' },
         { label: i18n.t('myBookings') || 'My Bookings', route: '/clinic-bookings', icon: 'calendar-outline' },
         { label: i18n.t('messages') || 'Messages', route: '/clinic-messages', icon: 'chatbubbles-outline' },
         ];
@@ -169,26 +174,7 @@ export default function HamburgerMenu() {
     return items;
   };
 
-  // Get assistance route based on role
-  const getAssistanceRoute = (): string => {
-    switch (role) {
-      case 'parent': return '/parent-feed'; // No specific assistance for parent
-      case 'agent': return '/agent-services';
-      case 'clinic': return '/clinic-services';
-      case 'academy': return '/academy-services';
-      default: return '/player-verify';
-    }
-  };
-
   const menuItems = getMenuItems();
-  const assistanceRoute = getAssistanceRoute();
-  const assistanceLabel = role === 'player'
-    ? (i18n.t('academyAssistance') || 'Assistance & Extras')
-    : role === 'agent'
-      ? (i18n.t('agentAssistance') || 'Assistance & Extras')
-      : role === 'clinic'
-        ? (i18n.t('clinicAssistance') || 'Assistance & Extras')
-        : (i18n.t('academyAssistance') || 'Assistance & Extras');
 
   const handleNavigate = (path: string | { pathname: string; params?: any }) => {
     closeMenu();
@@ -200,28 +186,40 @@ export default function HamburgerMenu() {
   };
 
   return (
-
     <Modal visible={visible} animationType="fade" transparent onRequestClose={closeMenu}>
       <View style={styles.modalContainer}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={closeMenu} />
         <View style={styles.menuBox}>
           <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {/* Regular Menu Items (no coming soon) */}
-            {menuItems.filter(item => !item.comingSoon).map((item, index) => (
+            {/* Removed gold COMING SOON header */}
+
+            {/* Regular Menu Items */}
+            {menuItems.map((item, index) => (
               <React.Fragment key={item.route}>
                 {item.dividerBefore && <View style={styles.divider} />}
                 <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={() => handleNavigate(item.route)}
-                  activeOpacity={0.7}
+                  style={[styles.menuItem, item.comingSoon && styles.specialMenuItemContainer]}
+                  onPress={() => {
+                    if (item.comingSoon) {
+                      Alert.alert(
+                        i18n.t('comingSoon') || 'Coming Soon',
+                        i18n.t('comingSoonMessage') || 'This feature is coming soon!',
+                        [{ text: i18n.t('ok') || 'OK' }]
+                      );
+                    } else {
+                      handleNavigate(item.route);
+                    }
+                  }}
+                  activeOpacity={item.comingSoon ? 0.6 : 0.7}
+                  disabled={item.comingSoon}
                 >
                   <Ionicons
                     name={item.icon as any}
                     size={20}
-                    color={'#000'}
-                    style={styles.menuIcon}
+                    color={item.comingSoon ? '#bbb' : '#000'}
+                    style={[styles.menuIcon, item.comingSoon && styles.comingSoonBlurredIcon]}
                   />
-                  <Text style={styles.menuText}>
+                  <Text style={[styles.menuText, item.comingSoon && styles.specialMenuText, item.comingSoon && styles.comingSoonBlurredText]}>
                     {item.label}
                   </Text>
                   {item.route === '/notifications' && unreadNotificationCount > 0 && (
@@ -229,6 +227,13 @@ export default function HamburgerMenu() {
                       <Text style={styles.unreadBadgeText}>
                         {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
                       </Text>
+                    </View>
+                  )}
+                  {item.comingSoon && (
+                    <View style={styles.diagonalBannerContainer} pointerEvents="none">
+                      <View style={styles.diagonalBanner}>
+                        <Text style={styles.diagonalBannerText}>{i18n.t('comingSoon') || 'Coming Soon'}</Text>
+                      </View>
                     </View>
                   )}
                 </TouchableOpacity>

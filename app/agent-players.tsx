@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Video, ResizeMode } from 'expo-av';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
@@ -15,9 +17,28 @@ import { type QueryDocumentSnapshot, type DocumentData } from 'firebase/firestor
 type Player = AgentPlayer;
 
 const positions = ['GK', 'RB', 'LB', 'CB', 'CDM', 'CM', 'CAM', 'LW', 'RW', 'ST'];
-const cityKeys = [
-  'cairo', 'alexandria', 'giza', 'shubraElKheima', 'portSaid', 'suez', 'luxor', 'asyut', 'ismailia', 'faiyum', 'zagazig', 'aswan', 'damietta', 'damanhur', 'minya', 'beniSuef', 'qena', 'sohag', 'hurghada', 'sixthOfOctober', 'newCairo'
-];
+const cityLabels = i18n.t('cities', { returnObjects: true }) as Record<string, string>;
+const cityKeys = Object.keys(cityLabels);
+const cityAliases: Record<string, string> = {
+  asyut: 'assiut',
+  faiyum: 'fayoum',
+};
+
+const normalizeCityKey = (value?: string) => (value || '').toString().replace(/\s+/g, '').toLowerCase();
+const canonicalCityKeys = Object.entries(cityLabels).reduce<Record<string, string>>((acc, [key, label]) => {
+  acc[normalizeCityKey(key)] = key;
+  acc[normalizeCityKey(String(label))] = key;
+  return acc;
+}, {
+  asyut: 'assiut',
+  faiyum: 'fayoum',
+});
+
+const getCanonicalCityKey = (value?: string) => {
+  const normalizedValue = normalizeCityKey(value);
+  if (!normalizedValue) return '';
+  return canonicalCityKeys[normalizedValue] || cityAliases[normalizedValue] || value || '';
+};
 
 function getAge(dob?: string): number | null {
   if (!dob) return null;
@@ -33,16 +54,11 @@ function getAge(dob?: string): number | null {
   return new Date().getFullYear() - year;
 }
 
-const requiredFields = [
-  { key: 'firstName', label: i18n.t('firstName') || 'First Name' },
-  { key: 'lastName', label: i18n.t('lastName') || 'Last Name' },
-  { key: 'position', label: i18n.t('position') || 'Position' },
-  { key: 'city', label: i18n.t('city') || 'City' },
-  { key: 'age', label: i18n.t('age') || 'Age' }, // changed from dob to age
-];
-
 const getPositionLabel = (pos: string) => i18n.locale === 'ar' && i18n.t(`positions.${pos}`) ? i18n.t(`positions.${pos}`) : pos;
-const getCityLabel = (cityKey: string) => cityKey ? (i18n.t(`cities.${cityKey}`) || cityKey) : '';
+const getCityLabel = (cityKey: string) => {
+  const canonicalCityKey = getCanonicalCityKey(cityKey);
+  return canonicalCityKey ? (cityLabels[canonicalCityKey] || cityKey) : '';
+};
 
 export default function AgentPlayersScreen() {
   const [players, setPlayers] = useState<Player[]>([]);
@@ -62,7 +78,7 @@ export default function AgentPlayersScreen() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const favoriteAnims = useRef(new Map<string, Animated.Value>()).current;
   const { openMenu } = useHamburgerMenu();
-  const router = require('expo-router').useRouter();
+  const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
@@ -72,7 +88,7 @@ export default function AgentPlayersScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   useEffect(() => {
     loadInitialPlayers();
@@ -138,7 +154,7 @@ export default function AgentPlayersScreen() {
     if (filters.firstName && !(`${p.firstName}`.toLowerCase().includes(filters.firstName.toLowerCase()))) return false;
     if (filters.lastName && !(`${p.lastName}`.toLowerCase().includes(filters.lastName.toLowerCase()))) return false;
     if (filters.position && p.position !== filters.position) return false;
-    if (filters.city && p.city !== filters.city) return false;
+    if (filters.city && getCanonicalCityKey(p.city) !== getCanonicalCityKey(filters.city)) return false;
     if (filters.age && getAge(p.dob) !== Number(filters.age)) return false;
     return true;
   });
@@ -496,7 +512,6 @@ export default function AgentPlayersScreen() {
 // Helper component for natural video size
 function VideoWithNaturalSize({ uri }: { uri: string }) {
   const [aspectRatio, setAspectRatio] = React.useState(16 / 9);
-  const { ResizeMode, Video } = require('expo-av');
   return (
     <Video
       source={{ uri }}

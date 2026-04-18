@@ -32,7 +32,7 @@ export default function PlayerHomeScreen() {
       easing: Easing.out(Easing.exp),
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
   React.useEffect(() => {
     const fetchUser = async () => {
@@ -41,7 +41,7 @@ export default function PlayerHomeScreen() {
         if (userData) {
           setUser(JSON.parse(userData));
         }
-      } catch (e) {
+      } catch {
         setUser(null);
       }
     };

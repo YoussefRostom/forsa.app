@@ -61,7 +61,7 @@ export default function AgentPlayerProfileScreen() {
             setVideos([]);
           }
         }
-      } catch (e) {
+      } catch {
         setPlayer(null);
         setVideos([]);
       }

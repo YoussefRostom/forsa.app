@@ -8,7 +8,6 @@ import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   Easing,
-  I18nManager,
   Image,
   Platform,
   ScrollView,
@@ -22,7 +21,6 @@ import { switchLanguage } from '../lib/languageUtils';
 
 const WelcomeScreen = () => {
   const router = useRouter();
-  const [showLangMenu, setShowLangMenu] = React.useState(false);
   const [lang, setLang] = React.useState(i18n.locale);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -33,16 +31,11 @@ const WelcomeScreen = () => {
       if (lang) {
         i18n.locale = lang;
         setLang(lang);
-        // Set RTL state based on saved language
-        const isRTL = lang === 'ar';
-        I18nManager.forceRTL(isRTL);
-        I18nManager.swapLeftAndRightInRTL(isRTL);
       } else {
-        // Default to LTR
-        I18nManager.forceRTL(false);
-        I18nManager.swapLeftAndRightInRTL(false);
+        setLang('en');
       }
     };
+
     loadLang();
 
     // Animate on mount
@@ -60,7 +53,7 @@ const WelcomeScreen = () => {
         useNativeDriver: true,
       }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim]);
 
   const setLanguage = async (newLang: string) => {
     setLang(newLang);

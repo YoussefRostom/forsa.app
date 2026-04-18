@@ -21,15 +21,25 @@ type PickerParams = {
 
 const DEFAULT_LATITUDE = 30.0444;
 const DEFAULT_LONGITUDE = 31.2357;
+const isMeaningfulCoordinatePair = (latitude: number, longitude: number) =>
+  Number.isFinite(latitude) && Number.isFinite(longitude) && !(latitude === 0 && longitude === 0);
+
+const parseCoordinateParam = (value?: string) => {
+  if (typeof value !== 'string') return Number.NaN;
+  const trimmed = value.trim();
+  if (!trimmed) return Number.NaN;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
 
 export default function AcademyLocationPickerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<PickerParams>();
   const webViewRef = useRef<WebView>(null);
 
-  const parsedLatitude = typeof params.latitude === 'string' ? Number(params.latitude) : Number.NaN;
-  const parsedLongitude = typeof params.longitude === 'string' ? Number(params.longitude) : Number.NaN;
-  const hasInitialSelection = Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude);
+  const parsedLatitude = parseCoordinateParam(params.latitude);
+  const parsedLongitude = parseCoordinateParam(params.longitude);
+  const hasInitialSelection = isMeaningfulCoordinatePair(parsedLatitude, parsedLongitude);
 
   const [selectedLocation, setSelectedLocation] = useState<{ latitude: number; longitude: number } | null>(
     hasInitialSelection ? { latitude: parsedLatitude, longitude: parsedLongitude } : null
@@ -128,7 +138,7 @@ export default function AcademyLocationPickerScreen() {
   const handleWebMessage = (event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (Number.isFinite(data?.latitude) && Number.isFinite(data?.longitude)) {
+      if (isMeaningfulCoordinatePair(Number(data?.latitude), Number(data?.longitude))) {
         setSelectedLocation({ latitude: data.latitude, longitude: data.longitude });
       }
     } catch (error) {
@@ -189,6 +199,10 @@ export default function AcademyLocationPickerScreen() {
       setConfirming(true);
       const latitude = Number(selectedLocation.latitude.toFixed(6));
       const longitude = Number(selectedLocation.longitude.toFixed(6));
+      if (!isMeaningfulCoordinatePair(latitude, longitude)) {
+        Alert.alert(i18n.t('error') || 'Error', i18n.t('selectLocationOnMapFirst') || 'Tap on the map to choose the academy location first.');
+        return;
+      }
 
       const resolvedAddress = typeof params.address === 'string' ? params.address : '';
       const resolvedCity = typeof params.city === 'string' ? params.city : '';

@@ -3,6 +3,11 @@ import { db } from '../config/firebase';
 import { sendSuccess, sendError } from '../utils/response.util';
 import { z } from 'zod';
 
+function getProfileCollectionForRole(role: string): string {
+  if (role === 'academy') return 'academies';
+  return `${role}s`;
+}
+
 const createProfileSchema = z.object({
   playerName: z.string().optional(),
   age: z.number().optional(),
@@ -45,7 +50,7 @@ export async function getUserProfile(req: Request, res: Response, _next: NextFun
 
     // Get role-specific profile
     let profile = null;
-    const profileCollection = `${role}s`;
+    const profileCollection = getProfileCollectionForRole(role);
     const profileDoc = await db.collection(profileCollection).doc(userId).get();
     if (profileDoc.exists) {
       profile = profileDoc.data();
@@ -94,7 +99,7 @@ export async function createUserProfile(req: Request, res: Response, _next: Next
     const role = req.user.role;
 
     // Check if profile already exists
-    const profileCollection = `${role}s`;
+    const profileCollection = getProfileCollectionForRole(role);
     const existingProfile = await db.collection(profileCollection).doc(userId).get();
 
     if (existingProfile.exists) {
@@ -148,7 +153,7 @@ export async function updateUserProfile(req: Request, res: Response, _next: Next
     const role = req.user.role;
 
     // Check if profile exists
-    const profileCollection = `${role}s`;
+    const profileCollection = getProfileCollectionForRole(role);
     const profileDoc = await db.collection(profileCollection).doc(userId).get();
 
     if (!profileDoc.exists) {

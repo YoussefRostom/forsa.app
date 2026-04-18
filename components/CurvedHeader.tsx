@@ -20,7 +20,7 @@ export default function CurvedHeader({ title, menuVisible, setMenuVisible }: Cur
             <View style={styles.line} />
           </View>
         </TouchableOpacity>
-        <HamburgerMenu visible={menuVisible} onClose={() => setMenuVisible(false)} />
+        <HamburgerMenu />
       </View>
     </View>
   );

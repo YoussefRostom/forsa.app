@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { auth } from '../../lib/firebase';
-import { subscribeMyNotifications, markAsRead, markAllNotificationsAsRead, Notification, NotificationType } from '../../services/NotificationService';
+import { useAuth } from '../../context/AuthContext';
+import { subscribeMyNotifications, listMyNotifications, markAsRead, markAllNotificationsAsRead, Notification, NotificationType } from '../../services/NotificationService';
 import { formatTimestamp } from '../../lib/dateUtils';
 
 const C = {
@@ -27,18 +27,55 @@ const TYPE_META: Record<NotificationType, { icon: string; color: string; label: 
 
 export default function AdminNotificationsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [list, setList] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
 
-  useEffect(() => {
-    if (!auth.currentUser) { setLoading(false); return; }
-    const unsubscribe = subscribeMyNotifications((notifications) => {
-      setList(notifications);
+  const reloadNotifications = useCallback(async () => {
+    if (!user?.uid) {
+      setList([]);
       setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+      return;
+    }
+
+    try {
+      const notifications = await listMyNotifications(100, user.uid);
+      setList(notifications);
+    } catch (error) {
+      console.error('Failed to reload admin notifications:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.uid]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.uid) {
+        setList([]);
+        setLoading(false);
+        return () => {};
+      }
+
+      setLoading(true);
+      void reloadNotifications();
+
+      const unsubscribe = subscribeMyNotifications((notifications) => {
+        setList(notifications);
+        setLoading(false);
+        setRefreshing(false);
+      }, 100, user.uid);
+
+      return () => unsubscribe();
+    }, [reloadNotifications, user?.uid])
+  );
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void reloadNotifications();
+  }, [reloadNotifications]);
 
   const unreadCount = list.filter(n => !n.read).length;
 
@@ -133,6 +170,7 @@ export default function AdminNotificationsScreen() {
           keyExtractor={n => n.id}
           renderItem={renderItem}
           contentContainerStyle={S.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.blue} />}
         />
       )}
     </View>

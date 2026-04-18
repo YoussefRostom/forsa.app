@@ -141,7 +141,7 @@ export default function OtpModal({
 
             // Success — pass uid/tokens to parent
             onVerified(data.data.user.id, data.data.token, data.data.refreshToken);
-        } catch (err: any) {
+        } catch {
             setError('Network error. Please check your connection.');
         } finally {
             setLoading(false);
@@ -241,7 +241,7 @@ export default function OtpModal({
 
                     {/* Resend */}
                     <View style={styles.resendRow}>
-                        <Text style={styles.resendLabel}>Didn't receive it? </Text>
+                        <Text style={styles.resendLabel}>Didn&apos;t receive it? </Text>
                         {timer > 0 ? (
                             <Text style={styles.resendTimer}>Resend in {timer}s</Text>
                         ) : (
