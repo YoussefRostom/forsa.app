@@ -13,8 +13,7 @@
       "bundleIdentifier": "com.yousseffrostom.forsaapp",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false,
-        "NSLocationWhenInUseUsageDescription": "Forsa uses your location to show the nearest academies and training options around you."
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -26,8 +25,10 @@
       "package": "com.yousseffrostom.forsaapp",
       "versionCode": 1,
       "permissions": [
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -46,32 +47,40 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "color": "#ffffff",
+          "defaultChannel": "default",
+          "enableBackgroundRemoteNotifications": false
+        }
+      ],
       "expo-secure-store",
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Forsa uses your location to show the nearest academies and training options around you."
+          "locationWhenInUsePermission": "Forsa uses your location to show nearby academies and clinics, and to sort results by distance when you ask for nearest options."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Forsa uses your photo library so you can upload profile photos, media, and other content.",
-          "cameraPermission": "Forsa uses your camera so you can capture profile photos, media, and other content."
+          "photosPermission": "Forsa uses your photo library so you can choose profile photos and upload images or videos for signup and your feed.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Forsa uses your camera to scan QR codes and capture media when needed."
+          "cameraPermission": "Forsa uses the camera to scan check-in QR codes at academies and clinics.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
         }
       ],
       "expo-video"
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
     "extra": {
       "router": {},
       "eas": {
