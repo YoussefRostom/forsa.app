@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yousseffrostom.forsaapp",
-      "buildNumber": "1",
+      "buildNumber": "42",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Forsa uses the camera to scan QR codes for booking verification and service check-ins.",
@@ -69,8 +69,7 @@
         "expo-image-picker",
         {
           "photosPermission": "Forsa uses your photo library so you can choose profile photos and upload images or videos for signup and your feed.",
-          "cameraPermission": false,
-          "microphonePermission": false
+          "cameraPermission": "Forsa uses the camera to scan QR codes for booking verification and service check-ins."
         }
       ],
       [
