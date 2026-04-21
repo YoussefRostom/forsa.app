@@ -648,6 +648,7 @@ export default function ClinicDetailsScreen() {
               />
 
               <Text style={styles.bookingLabel}>{i18n.t('shiftPreference') || 'Shift Preference'}</Text>
+              <Text style={styles.bookingHelperText}>{i18n.t('shiftPreferenceHint') || 'If your preferred date and time are not available, this helps the clinic choose the time range that suits you best.'}</Text>
               <View style={{flexDirection: 'row', gap: 12, marginBottom: 16}}>
                 <TouchableOpacity
                   style={[styles.serviceOption, {flex: 1, marginBottom: 0, justifyContent: 'center'}, selectedShift === 'Day' && styles.serviceOptionSelected]}
@@ -1049,6 +1050,13 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 8,
     marginTop: 4,
+  },
+  bookingHelperText: {
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 18,
+    marginTop: -2,
+    marginBottom: 12,
   },
   branchOptions: {
     marginBottom: 12,

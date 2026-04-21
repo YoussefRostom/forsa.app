@@ -76,33 +76,33 @@ type ClinicBranchLocation = {
 
 const districtsByCity: Record<string, { key: string; label: string }[]> = {
   cairo: [
-    { key: 'Maadi', label: 'Maadi' },
-    { key: 'Nasr City', label: 'Nasr City' },
-    { key: 'Heliopolis', label: 'Heliopolis' },
-    { key: 'Mokattam', label: 'Mokattam' },
-    { key: 'New Cairo', label: 'New Cairo' },
-    { key: 'Rehab', label: 'Rehab' },
-    { key: 'Madinaty', label: 'Madinaty' },
-    { key: 'Shorouk', label: 'Shorouk' },
-    { key: '6 October', label: '6 October' },
-    { key: 'Sheikh Zayed', label: 'Sheikh Zayed' },
-    { key: 'Zamalek', label: 'Zamalek' },
-    { key: 'Dokki', label: 'Dokki' },
-    { key: 'Mohandessin', label: 'Mohandessin' },
-    { key: 'Faisal', label: 'Faisal' },
-    { key: 'Haram', label: 'Haram' },
+    { key: 'Maadi', label: 'المعادي' },
+    { key: 'Nasr City', label: 'مدينة نصر' },
+    { key: 'Heliopolis', label: 'مصر الجديدة' },
+    { key: 'Mokattam', label: 'المقطم' },
+    { key: 'New Cairo', label: 'القاهرة الجديدة' },
+    { key: 'Rehab', label: 'الرحاب' },
+    { key: 'Madinaty', label: 'مدينتي' },
+    { key: 'Shorouk', label: 'الشروق' },
+    { key: '6 October', label: 'السادس من أكتوبر' },
+    { key: 'Sheikh Zayed', label: 'الشيخ زايد' },
+    { key: 'Zamalek', label: 'الزمالك' },
+    { key: 'Dokki', label: 'الدقي' },
+    { key: 'Mohandessin', label: 'المهندسين' },
+    { key: 'Faisal', label: 'فيصل' },
+    { key: 'Haram', label: 'الهرم' },
   ],
   alexandria: [
-    { key: 'Roushdy', label: 'Roushdy' },
-    { key: 'Smouha', label: 'Smouha' },
-    { key: 'Sporting', label: 'Sporting' },
-    { key: 'Kafr Abdo', label: 'Kafr Abdo' },
-    { key: 'Gleem', label: 'Gleem' },
-    { key: 'Sidi Bishr', label: 'Sidi Bishr' },
-    { key: 'Miami', label: 'Miami' },
-    { key: 'Mandara', label: 'Mandara' },
-    { key: 'Agami', label: 'Agami' },
-    { key: 'Montaza', label: 'Montaza' },
+    { key: 'Roushdy', label: 'رشدي' },
+    { key: 'Smouha', label: 'سموحة' },
+    { key: 'Sporting', label: 'سبورتنج' },
+    { key: 'Kafr Abdo', label: 'كفر عبده' },
+    { key: 'Gleem', label: 'جليم' },
+    { key: 'Sidi Bishr', label: 'سيدي بشر' },
+    { key: 'Miami', label: 'ميامي' },
+    { key: 'Mandara', label: 'المندرة' },
+    { key: 'Agami', label: 'العجمي' },
+    { key: 'Montaza', label: 'المنتزه' },
   ],
 };
 
@@ -1177,7 +1177,7 @@ const SignupClinic = () => {
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>
-                  {i18n.t('email_address') || 'Email Address'} <Text style={{ color: '#999', fontSize: 14 }}>(Optional)</Text>
+                  {i18n.t('email_address')} <Text style={{ color: '#999', fontSize: 14 }}>({i18n.t('optional')})</Text>
                 </Text>
                 <View style={[styles.inputWrapper, missing.email && styles.inputWrapperError]}>
                   <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
@@ -1203,7 +1203,7 @@ const SignupClinic = () => {
                     }}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    placeholder={i18n.t('email_address_ph') || 'Enter your email address (optional)'}
+                    placeholder={i18n.t('email_address_ph')}
                     placeholderTextColor="#999"
                   />
                 </View>

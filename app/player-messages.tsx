@@ -28,7 +28,7 @@ export default function PlayerMessagesScreen() {
         return;
       }
       const convId = await getOrCreateConversation(adminId);
-      router.push({ pathname: '/player-chat', params: { conversationId: convId, otherUserId: adminId, name: 'Admin' } });
+      router.push({ pathname: '/player-chat', params: { conversationId: convId, otherUserId: adminId, name: i18n.t('adminLabel') || 'Admin' } });
     } catch (err) {
       console.error(err);
     } finally {

@@ -74,7 +74,7 @@ export default function AcademyClinicDetailsScreen() {
               const dayData = data.workingHours[day];
               workingHoursList.push({
                 day: i18n.t(day) || day,
-                from: dayData.off ? 'Closed' : dayData.from,
+                from: dayData.off ? (i18n.t('closed') || 'Closed') : dayData.from,
                 to: dayData.off ? '' : dayData.to,
                 off: dayData.off
               });
@@ -146,7 +146,7 @@ export default function AcademyClinicDetailsScreen() {
     if (clinic.phone) {
       Linking.openURL(`tel:${clinic.phone}`);
     } else {
-      Alert.alert(i18n.t('error'), 'No phone number available');
+      Alert.alert(i18n.t('error'), i18n.t('noPhoneAvailable') || 'No phone number available');
     }
   };
 
@@ -162,13 +162,13 @@ export default function AcademyClinicDetailsScreen() {
     const doctorName = selectedDoctor || (i18n.t('noSpecificDoctor') || 'No specific doctor');
     const serviceList = clinic.services && clinic.services.length > 0 ? clinic.services : [];
     const selectedService = serviceList[selectedServiceIndex];
-    const serviceName = selectedService ? selectedService.name : 'General';
+    const serviceName = selectedService ? selectedService.name : (i18n.t('generalService') || 'General');
     const servicePrice = selectedService ? Number(selectedService.fee) || 0 : 0;
 
     try {
       setBookingLoading(true);
 
-      let academyName = user.displayName || 'Academy';
+      let academyName = user.displayName || (i18n.t('academy') || 'Academy');
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
@@ -202,7 +202,7 @@ export default function AcademyClinicDetailsScreen() {
 
       Alert.alert(
         i18n.t('reservation') || 'Reservation',
-        `${i18n.t('reservationSuccess') || 'Reservation request sent!'}\n${i18n.t('doctor') || 'Doctor'}: ${doctor}\n${i18n.t('service') || 'Service'}: ${serviceName}`,
+        `${i18n.t('reservationSuccess') || 'Reservation request sent!'}\n${i18n.t('doctor') || 'Doctor'}: ${doctorName}\n${i18n.t('service') || 'Service'}: ${serviceName}`,
         [{ text: i18n.t('ok') || 'OK', onPress: () => router.push('/academy-bookings') }]
       );
     } catch (error) {
@@ -300,7 +300,7 @@ export default function AcademyClinicDetailsScreen() {
                 </View>
                 <View style={styles.detailContent}>
                   <Text style={styles.detailLabel}>{i18n.t('email')}</Text>
-                  <Text style={styles.detailValue}>{clinic.email || 'N/A'}</Text>
+                  <Text style={styles.detailValue}>{clinic.email || (i18n.t('notAvailable') || 'N/A')}</Text>
                 </View>
               </View>
             </View>
@@ -314,7 +314,7 @@ export default function AcademyClinicDetailsScreen() {
                 <View key={idx} style={styles.hoursRow}>
                   <Text style={styles.hoursDay}>{row.day}</Text>
                   <Text style={styles.hoursTime}>
-                    {row.off ? 'Closed' : `${row.from} - ${row.to}`}
+                    {row.off ? (i18n.t('closed') || 'Closed') : `${row.from} - ${row.to}`}
                   </Text>
                 </View>
               ))}

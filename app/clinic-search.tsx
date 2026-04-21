@@ -244,6 +244,16 @@ export default function ClinicSearchScreen() {
   const selectedSortLabel = locationLoading
     ? (i18n.t('gettingCurrentLocation') || 'Getting current location...')
     : (sortOptions.find((option) => option.key === sortBy)?.label || sortOptions[0].label);
+  const hasActiveFilters = Boolean(name || city || district || service || price || sortBy !== 'recommended');
+
+  const clearAllFilters = () => {
+    setName('');
+    setCity('');
+    setDistrict('');
+    setService('');
+    setPrice('');
+    setSortBy('recommended');
+  };
 
   useEffect(() => {
     if (city && district && !availableDistricts.some((item) => item.key === district)) {
@@ -433,6 +443,237 @@ export default function ClinicSearchScreen() {
       return a.clinicName.localeCompare(b.clinicName);
     });
 
+  const filtersHeader = (
+    <>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
+          <Ionicons name="menu" size={24} color="#fff" />
+        </TouchableOpacity>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>{i18n.t('searchClinics') || 'Search Clinics'}</Text>
+        </View>
+      </View>
+
+      <HamburgerMenu />
+
+      <ScrollView
+        style={styles.filtersCard}
+        contentContainerStyle={styles.filtersCardContent}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        {hasActiveFilters ? (
+          <View style={styles.filtersHeaderRow}>
+            <TouchableOpacity style={styles.clearFiltersButton} onPress={clearAllFilters}>
+              <Text style={styles.clearFiltersText}>{i18n.t('clearFilters') || 'Clear filters'}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        <View style={styles.filterRow}>
+          <View style={styles.filterInputWrapper}>
+            <Ionicons name="search-outline" size={20} color="#999" style={styles.filterIcon} />
+            <TextInput
+              style={styles.filterInput}
+              value={name}
+              onChangeText={setName}
+              placeholder={i18n.t('clinicNameLabel') || 'Clinic Name'}
+              placeholderTextColor="#999"
+            />
+          </View>
+        </View>
+
+        <View style={styles.filterRow}>
+          <TouchableOpacity style={styles.filterInputWrapper} onPress={() => setSortModal(true)}>
+            <Ionicons name="swap-vertical-outline" size={20} color="#999" style={styles.filterIcon} />
+            <Text style={styles.filterText}>{selectedSortLabel}</Text>
+            <Ionicons name="chevron-down" size={20} color="#999" />
+          </TouchableOpacity>
+        </View>
+
+        <Modal visible={sortModal} transparent animationType="fade" onRequestClose={() => setSortModal(false)}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortModal(false)}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{i18n.t('sortResults') || 'Sort results'}</Text>
+                <TouchableOpacity onPress={() => setSortModal(false)}>
+                  <Ionicons name="close" size={24} color="#000" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalScrollView}>
+                {sortOptions.map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[styles.modalOption, sortBy === item.key && styles.modalOptionSelected]}
+                    onPress={() => void handleSortSelection(item.key)}
+                  >
+                    <Text style={[styles.modalOptionText, sortBy === item.key && styles.modalOptionTextSelected]}>
+                      {item.label}
+                    </Text>
+                    {sortBy === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <View style={styles.filterRow}>
+          <TouchableOpacity style={styles.filterInputWrapper} onPress={() => setCityModal(true)}>
+            <Ionicons name="location-outline" size={20} color="#999" style={styles.filterIcon} />
+            <Text style={[styles.filterText, !city && styles.filterPlaceholder]}>
+              {city ? cities.find(c => c.key === city)?.label || city : i18n.t('city')}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color="#999" />
+          </TouchableOpacity>
+        </View>
+
+        <Modal visible={cityModal} transparent animationType="fade" onRequestClose={() => setCityModal(false)}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setCityModal(false)}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{i18n.t('selectCity')}</Text>
+                <TouchableOpacity onPress={() => setCityModal(false)}>
+                  <Ionicons name="close" size={24} color="#000" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalScrollView}>
+                {cityOptions.map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[styles.modalOption, city === item.key && styles.modalOptionSelected]}
+                    onPress={() => {
+                      setCity(item.key);
+                      setDistrict('');
+                      setCityModal(false);
+                    }}
+                  >
+                    <Text style={[styles.modalOptionText, city === item.key && styles.modalOptionTextSelected]}>
+                      {item.label}
+                    </Text>
+                    {city === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <View style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.filterInputWrapper, !isDistrictEnabled && styles.filterInputDisabled]}
+            onPress={() => isDistrictEnabled && setDistrictModal(true)}
+            disabled={!isDistrictEnabled}
+          >
+            <Ionicons name="location-outline" size={20} color={isDistrictEnabled ? '#999' : '#666'} style={styles.filterIcon} />
+            <Text style={[styles.filterText, !district && styles.filterPlaceholder, !isDistrictEnabled && styles.filterInputDisabledText]}>
+              {district || (!city
+                ? (i18n.t('selectCityFirst') || 'Select city first')
+                : (availableDistricts.length ? (i18n.t('district') || 'District') : (i18n.t('noDistrictsAvailable') || 'No districts available')))}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color={isDistrictEnabled ? '#999' : '#666'} />
+          </TouchableOpacity>
+        </View>
+
+        <Modal visible={districtModal} transparent animationType="fade" onRequestClose={() => setDistrictModal(false)}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setDistrictModal(false)}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{i18n.t('selectDistrict') || 'Select district'}</Text>
+                <View style={styles.modalHeaderActions}>
+                  {district ? (
+                    <TouchableOpacity style={styles.modalClearButton} onPress={() => setDistrict('')}>
+                      <Text style={styles.modalClearText}>{i18n.t('clear') || 'Clear'}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity onPress={() => setDistrictModal(false)}>
+                    <Ionicons name="close" size={24} color="#000" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <ScrollView style={styles.modalScrollView}>
+                {availableDistricts.length ? availableDistricts.map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[styles.modalOption, district === item.key && styles.modalOptionSelected]}
+                    onPress={() => {
+                      setDistrict(item.key);
+                      setDistrictModal(false);
+                    }}
+                  >
+                    <Text style={[styles.modalOptionText, district === item.key && styles.modalOptionTextSelected]}>
+                      {item.label}
+                    </Text>
+                    {district === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
+                  </TouchableOpacity>
+                )) : (
+                  <View style={styles.modalEmptyState}>
+                    <Text style={styles.modalEmptyText}>{i18n.t('noDistrictsAvailable') || 'No districts available'}</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <View style={styles.filterRow}>
+          <TouchableOpacity style={styles.filterInputWrapper} onPress={() => setServiceModal(true)}>
+            <Ionicons name="medical-outline" size={20} color="#999" style={styles.filterIcon} />
+            <Text style={[styles.filterText, !service && styles.filterPlaceholder]}>
+              {service ? servicesList.find(s => s.key === service)?.label : i18n.t('service') || 'Service'}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color="#999" />
+          </TouchableOpacity>
+        </View>
+
+        <Modal visible={serviceModal} transparent animationType="fade" onRequestClose={() => setServiceModal(false)}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setServiceModal(false)}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{i18n.t('selectService') || 'Select Service'}</Text>
+                <TouchableOpacity onPress={() => setServiceModal(false)}>
+                  <Ionicons name="close" size={24} color="#000" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalScrollView}>
+                {servicesList.map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={[styles.modalOption, service === item.key && styles.modalOptionSelected]}
+                    onPress={() => {
+                      setService(item.key);
+                      setServiceModal(false);
+                    }}
+                  >
+                    <Text style={[styles.modalOptionText, service === item.key && styles.modalOptionTextSelected]}>
+                      {item.label}
+                    </Text>
+                    {service === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <View style={styles.filterRow}>
+          <View style={[styles.filterInputWrapper, !service && styles.filterInputDisabled]}>
+            <Ionicons name="cash-outline" size={20} color={service ? '#999' : '#666'} style={styles.filterIcon} />
+            <TextInput
+              style={[styles.filterInput, !service && styles.filterInputDisabledText]}
+              value={price}
+              onChangeText={(text) => setPrice(text.trim())}
+              placeholder={i18n.t('maxPrice') || 'Max Price'}
+              placeholderTextColor={service ? '#999' : '#666'}
+              keyboardType="numeric"
+              editable={!!service}
+            />
+          </View>
+        </View>
+      </ScrollView>
+    </>
+  );
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <LinearGradient
@@ -440,238 +681,29 @@ export default function ClinicSearchScreen() {
         style={styles.gradient}
       >
         <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
-              <Ionicons name="menu" size={24} color="#fff" />
-            </TouchableOpacity>
-            <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>{i18n.t('searchClinics') || 'Search Clinics'}</Text>
-            </View>
-          </View>
-
-          <HamburgerMenu />
-
-          <ScrollView
-            style={styles.filtersCard}
-            contentContainerStyle={styles.filtersCardContent}
-            showsVerticalScrollIndicator={false}
-            nestedScrollEnabled={true}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={styles.filterRow}>
-              <View style={styles.filterInputWrapper}>
-                <Ionicons name="search-outline" size={20} color="#999" style={styles.filterIcon} />
-                <TextInput
-                  style={styles.filterInput}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder={i18n.t('clinicNameLabel') || 'Clinic Name'}
-                  placeholderTextColor="#999"
-                />
-              </View>
-            </View>
-
-            <View style={styles.filterRow}>
-              <TouchableOpacity style={styles.filterInputWrapper} onPress={() => setSortModal(true)}>
-                <Ionicons name="swap-vertical-outline" size={20} color="#999" style={styles.filterIcon} />
-                <Text style={styles.filterText}>{selectedSortLabel}</Text>
-                <Ionicons name="chevron-down" size={20} color="#999" />
-              </TouchableOpacity>
-            </View>
-
-            <Modal visible={sortModal} transparent animationType="fade" onRequestClose={() => setSortModal(false)}>
-              <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSortModal(false)}>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>{i18n.t('sortResults') || 'Sort results'}</Text>
-                    <TouchableOpacity onPress={() => setSortModal(false)}>
-                      <Ionicons name="close" size={24} color="#000" />
-                    </TouchableOpacity>
-                  </View>
-                  <ScrollView style={styles.modalScrollView}>
-                    {sortOptions.map((item) => (
-                      <TouchableOpacity
-                        key={item.key}
-                        style={[styles.modalOption, sortBy === item.key && styles.modalOptionSelected]}
-                        onPress={() => void handleSortSelection(item.key)}
-                      >
-                        <Text style={[styles.modalOptionText, sortBy === item.key && styles.modalOptionTextSelected]}>
-                          {item.label}
-                        </Text>
-                        {sortBy === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </TouchableOpacity>
-            </Modal>
-
-            <View style={styles.filterRow}>
-              <TouchableOpacity style={styles.filterInputWrapper} onPress={() => setCityModal(true)}>
-                <Ionicons name="location-outline" size={20} color="#999" style={styles.filterIcon} />
-                <Text style={[styles.filterText, !city && styles.filterPlaceholder]}>
-                  {city ? cities.find(c => c.key === city)?.label || city : i18n.t('city')}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#999" />
-              </TouchableOpacity>
-            </View>
-
-            <Modal visible={cityModal} transparent animationType="fade" onRequestClose={() => setCityModal(false)}>
-              <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setCityModal(false)}>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>{i18n.t('selectCity')}</Text>
-                    <TouchableOpacity onPress={() => setCityModal(false)}>
-                      <Ionicons name="close" size={24} color="#000" />
-                    </TouchableOpacity>
-                  </View>
-                  <ScrollView style={styles.modalScrollView}>
-                    {cityOptions.map((item) => (
-                      <TouchableOpacity
-                        key={item.key}
-                        style={[styles.modalOption, city === item.key && styles.modalOptionSelected]}
-                        onPress={() => {
-                          setCity(item.key);
-                          setDistrict('');
-                          setCityModal(false);
-                        }}
-                      >
-                        <Text style={[styles.modalOptionText, city === item.key && styles.modalOptionTextSelected]}>
-                          {item.label}
-                        </Text>
-                        {city === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </TouchableOpacity>
-            </Modal>
-
-            <View style={styles.filterRow}>
-              <TouchableOpacity
-                style={[styles.filterInputWrapper, !isDistrictEnabled && styles.filterInputDisabled]}
-                onPress={() => isDistrictEnabled && setDistrictModal(true)}
-                disabled={!isDistrictEnabled}
-              >
-                <Ionicons name="location-outline" size={20} color={isDistrictEnabled ? '#999' : '#666'} style={styles.filterIcon} />
-                <Text style={[styles.filterText, !district && styles.filterPlaceholder, !isDistrictEnabled && styles.filterInputDisabledText]}>
-                  {district || (!city
-                    ? (i18n.t('selectCityFirst') || 'Select city first')
-                    : (availableDistricts.length ? (i18n.t('district') || 'District') : (i18n.t('noDistrictsAvailable') || 'No districts available')))}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color={isDistrictEnabled ? '#999' : '#666'} />
-              </TouchableOpacity>
-            </View>
-
-            <Modal visible={districtModal} transparent animationType="fade" onRequestClose={() => setDistrictModal(false)}>
-              <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setDistrictModal(false)}>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>{i18n.t('selectDistrict') || 'Select district'}</Text>
-                    <View style={styles.modalHeaderActions}>
-                      {district ? (
-                        <TouchableOpacity style={styles.modalClearButton} onPress={() => setDistrict('')}>
-                          <Text style={styles.modalClearText}>{i18n.t('clear') || 'Clear'}</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                      <TouchableOpacity onPress={() => setDistrictModal(false)}>
-                        <Ionicons name="close" size={24} color="#000" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                  <ScrollView style={styles.modalScrollView}>
-                    {availableDistricts.length ? availableDistricts.map((item) => (
-                      <TouchableOpacity
-                        key={item.key}
-                        style={[styles.modalOption, district === item.key && styles.modalOptionSelected]}
-                        onPress={() => {
-                          setDistrict(item.key);
-                          setDistrictModal(false);
-                        }}
-                      >
-                        <Text style={[styles.modalOptionText, district === item.key && styles.modalOptionTextSelected]}>
-                          {item.label}
-                        </Text>
-                        {district === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
-                      </TouchableOpacity>
-                    )) : (
-                      <View style={styles.modalEmptyState}>
-                        <Text style={styles.modalEmptyText}>{i18n.t('noDistrictsAvailable') || 'No districts available'}</Text>
-                      </View>
-                    )}
-                  </ScrollView>
-                </View>
-              </TouchableOpacity>
-            </Modal>
-
-            <View style={styles.filterRow}>
-              <TouchableOpacity style={styles.filterInputWrapper} onPress={() => setServiceModal(true)}>
-                <Ionicons name="medical-outline" size={20} color="#999" style={styles.filterIcon} />
-                <Text style={[styles.filterText, !service && styles.filterPlaceholder]}>
-                  {service ? servicesList.find(s => s.key === service)?.label : i18n.t('service') || 'Service'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#999" />
-              </TouchableOpacity>
-            </View>
-
-            <Modal visible={serviceModal} transparent animationType="fade" onRequestClose={() => setServiceModal(false)}>
-              <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setServiceModal(false)}>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>{i18n.t('selectService') || 'Select Service'}</Text>
-                    <TouchableOpacity onPress={() => setServiceModal(false)}>
-                      <Ionicons name="close" size={24} color="#000" />
-                    </TouchableOpacity>
-                  </View>
-                  <ScrollView style={styles.modalScrollView}>
-                    {servicesList.map((item) => (
-                      <TouchableOpacity
-                        key={item.key}
-                        style={[styles.modalOption, service === item.key && styles.modalOptionSelected]}
-                        onPress={() => {
-                          setService(item.key);
-                          setServiceModal(false);
-                        }}
-                      >
-                        <Text style={[styles.modalOptionText, service === item.key && styles.modalOptionTextSelected]}>
-                          {item.label}
-                        </Text>
-                        {service === item.key && <Ionicons name="checkmark" size={20} color="#fff" />}
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </TouchableOpacity>
-            </Modal>
-
-            <View style={styles.filterRow}>
-              <View style={[styles.filterInputWrapper, !service && styles.filterInputDisabled]}>
-                <Ionicons name="cash-outline" size={20} color={service ? '#999' : '#666'} style={styles.filterIcon} />
-                <TextInput
-                  style={[styles.filterInput, !service && styles.filterInputDisabledText]}
-                  value={price}
-                  onChangeText={(text) => setPrice(text.trim())}
-                  placeholder={i18n.t('maxPrice') || 'Max Price'}
-                  placeholderTextColor={service ? '#999' : '#666'}
-                  keyboardType="numeric"
-                  editable={!!service}
-                />
-              </View>
-            </View>
-          </ScrollView>
-
           {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#fff" />
-              <Text style={styles.loadingText}>{i18n.t('loadingClinics') || 'Loading clinics...'}</Text>
-            </View>
+            <FlatList
+              data={[]}
+              keyExtractor={(_, index) => `loading-${index}`}
+              ListHeaderComponent={filtersHeader}
+              ListEmptyComponent={
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#fff" />
+                  <Text style={styles.loadingText}>{i18n.t('loadingClinics') || 'Loading clinics...'}</Text>
+                </View>
+              }
+              contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            />
           ) : (
             <FlatList
               data={filtered}
               keyExtractor={item => item.id}
+              ListHeaderComponent={filtersHeader}
               contentContainerStyle={styles.listContent}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => {
                 const displayLocation = getRelevantClinicLocation(
                   item,
@@ -794,10 +826,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-    maxHeight: 300, // Limit height to enable scrolling
+    maxHeight: 300,
+    flexGrow: 0,
+    overflow: 'hidden',
   },
   filtersCardContent: {
     padding: 20,
+    paddingBottom: 24,
+  },
+  filtersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 12,
+  },
+  clearFiltersButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  clearFiltersText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
   },
   filterRow: {
     marginBottom: 12,
@@ -926,7 +977,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   listContent: {
-    paddingHorizontal: 20,
     paddingBottom: 40,
   },
   card: {

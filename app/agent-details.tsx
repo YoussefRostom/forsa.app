@@ -69,7 +69,7 @@ export default function AgentDetailsScreen() {
         params: { conversationId, otherUserId: agent.id, name: agent.name },
       });
     } catch (err: any) {
-      Alert.alert(i18n.t('error') || 'Error', err.message || 'Failed to start conversation');
+      Alert.alert(i18n.t('error') || 'Error', err.message || (i18n.t('failedToStartConversation') || 'Failed to start conversation'));
     } finally {
       setMessaging(false);
     }

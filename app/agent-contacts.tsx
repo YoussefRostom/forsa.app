@@ -27,7 +27,7 @@ export default function AgentContactsScreen() {
       const adminId = await findAdminUserId();
       if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
       const convId = await getOrCreateConversation(adminId);
-      router.push({ pathname: '/agent-messages', params: { conversationId: convId, otherUserId: adminId, name: 'Admin' } });
+      router.push({ pathname: '/agent-messages', params: { conversationId: convId, otherUserId: adminId, name: i18n.t('adminLabel') || 'Admin' } });
     } catch (err) {
       console.error(err);
     } finally {
@@ -111,7 +111,7 @@ export default function AgentContactsScreen() {
           data={conversations}
           keyExtractor={item => item.id}
           renderItem={({ item }) => {
-            const displayName = item.otherParticipantName || 'Unknown';
+            const displayName = item.otherParticipantName || (i18n.t('unknownProvider') || 'Unknown');
             const unreadCount = item.unreadCount || 0;
             const lastMsg = item.lastMessage
               ? `${item.lastMessageSenderId === auth.currentUser?.uid ? `${i18n.t('you') || 'You'}: ` : ''}${item.lastMessage}`
@@ -155,7 +155,7 @@ export default function AgentContactsScreen() {
                     </View>
                     {!!lastMsgTime && <Text style={styles.lastMessageTime}>{lastMsgTime}</Text>}
                   </View>
-                  <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>{lastMsg || 'No messages yet'}</Text>
+                  <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>{lastMsg || (i18n.t('noMessagesYet') || 'No messages yet')}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#999" />
               </TouchableOpacity>

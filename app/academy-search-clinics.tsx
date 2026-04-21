@@ -134,6 +134,14 @@ export default function AcademySearchClinicsScreen() {
     );
     return passes;
   });
+  const hasActiveFilters = Boolean(name || city || service || price);
+
+  const clearAllFilters = () => {
+    setName('');
+    setCity('');
+    setService('');
+    setPrice('');
+  };
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -157,10 +165,18 @@ export default function AcademySearchClinicsScreen() {
           <ScrollView
             style={styles.filtersCard}
             contentContainerStyle={styles.filtersCardContent}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
+            scrollEnabled={true}
             keyboardShouldPersistTaps="handled"
           >
+            {hasActiveFilters ? (
+              <View style={styles.filtersHeaderRow}>
+                <TouchableOpacity style={styles.clearFiltersButton} onPress={clearAllFilters}>
+                  <Text style={styles.clearFiltersText}>{i18n.t('clearFilters') || 'Clear filters'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.filterRow}>
               <View style={styles.filterInputWrapper}>
                 <Ionicons name="search-outline" size={20} color="#999" style={styles.filterIcon} />
@@ -374,8 +390,26 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
     maxHeight: 300,
+    flexGrow: 0,
+    overflow: 'hidden',
   },
-  filtersCardContent: { padding: 20 },
+  filtersCardContent: { padding: 20, paddingBottom: 24 },
+  filtersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 12,
+  },
+  clearFiltersButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  clearFiltersText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
   filterRow: { marginBottom: 12 },
   filterInputWrapper: {
     flexDirection: 'row',

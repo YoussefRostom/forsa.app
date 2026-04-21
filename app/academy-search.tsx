@@ -229,6 +229,17 @@ export default function AcademySearchScreen() {
     { key: 'highestFee', label: i18n.t('highestFeeSort') || 'Highest fee' },
   ];
   const selectedSortLabel = sortOptions.find((option) => option.key === sortBy)?.label || sortOptions[0].label;
+  const hasActiveFilters = Boolean(name || city || selectedDistricts.length || age || price || privateOnly || sortBy !== 'recommended');
+
+  const clearAllFilters = () => {
+    setName('');
+    setCity('');
+    setSelectedDistricts([]);
+    setAge('');
+    setPrice('');
+    setPrivateOnly(false);
+    setSortBy('recommended');
+  };
 
   useEffect(() => {
     fetchAcademies();
@@ -479,6 +490,13 @@ export default function AcademySearchScreen() {
             nestedScrollEnabled={true}
             keyboardShouldPersistTaps="handled"
           >
+            {hasActiveFilters ? (
+              <View style={styles.filtersHeaderRow}>
+                <TouchableOpacity style={styles.clearFiltersButton} onPress={clearAllFilters}>
+                  <Text style={styles.clearFiltersText}>{i18n.t('clearFilters') || 'Clear filters'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.filterRow}>
               <View style={styles.filterInputWrapper}>
                 <Ionicons name="search-outline" size={20} color="#999" style={styles.filterIcon} />
@@ -834,6 +852,22 @@ const styles = StyleSheet.create({
   },
   filtersCardContent: {
     padding: 20,
+  },
+  filtersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 12,
+  },
+  clearFiltersButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  clearFiltersText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
   },
   filterRow: {
     marginBottom: 12,

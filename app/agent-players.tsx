@@ -487,7 +487,7 @@ export default function AgentPlayersScreen() {
                           const name = `${selectedPlayer.firstName} ${selectedPlayer.lastName}`.trim();
                           router.push({ pathname: '/agent-messages', params: { conversationId, otherUserId: selectedPlayer.id, name } });
                         } catch (error: any) {
-                          Alert.alert(i18n.t('error') || 'Error', error.message || 'Failed to start conversation');
+                          Alert.alert(i18n.t('error') || 'Error', error.message || (i18n.t('failedToStartConversation') || 'Failed to start conversation'));
                         }
                       }}
                     >

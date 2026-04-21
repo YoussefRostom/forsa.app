@@ -25,7 +25,7 @@ export default function AcademyMessagesScreen() {
       const adminId = await findAdminUserId();
       if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
       const convId = await getOrCreateConversation(adminId);
-      router.push({ pathname: '/academy-chat', params: { conversationId: convId, otherUserId: adminId, contact: 'Admin' } });
+      router.push({ pathname: '/academy-chat', params: { conversationId: convId, otherUserId: adminId, contact: i18n.t('adminConversation') || 'Admin' } });
     } catch (err) {
       console.error(err);
     } finally {
@@ -60,13 +60,13 @@ export default function AcademyMessagesScreen() {
       params: { 
         conversationId: conv.id,
         otherUserId: conv.otherParticipantId || '',
-        contact: conv.otherParticipantName || 'Unknown'
+        contact: conv.otherParticipantName || (i18n.t('unknownProvider') || 'Unknown')
       } 
     });
   };
 
   const renderContactItem = ({ item }: { item: Conversation }) => {
-    const displayName = item.otherParticipantName || 'Unknown';
+    const displayName = item.otherParticipantName || (i18n.t('unknownProvider') || 'Unknown');
     const unreadCount = item.unreadCount || 0;
     const lastMsg = item.lastMessage
       ? `${item.lastMessageSenderId === auth.currentUser?.uid ? `${i18n.t('you') || 'You'}: ` : ''}${item.lastMessage}`
@@ -89,7 +89,7 @@ export default function AcademyMessagesScreen() {
             <View style={styles.nameBlock}>
               <Text style={styles.conversationName}>{displayName}</Text>
               {!!item.otherParticipantRole && (
-                <Text style={styles.conversationRole}>{String(item.otherParticipantRole).replace(/_/g, ' ')}</Text>
+                <Text style={styles.conversationRole}>{i18n.t(String(item.otherParticipantRole)) || String(item.otherParticipantRole).replace(/_/g, ' ')}</Text>
               )}
             </View>
             <View style={styles.metaColumn}>
@@ -102,7 +102,7 @@ export default function AcademyMessagesScreen() {
             </View>
           </View>
           <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
-            {lastMsg || 'No messages yet'}
+            {lastMsg || (i18n.t('noMessagesYet') || 'No messages yet')}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color="#999" />

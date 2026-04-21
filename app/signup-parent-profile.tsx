@@ -250,7 +250,7 @@ const SignupParent = () => {
       // console.log('[Signup] Error:', err.message, err);
       let errorMsg = i18n.t('signupFailedMessage');
       if (err.code === 'auth/email-already-in-use') {
-        errorMsg = 'This phone number is already registered';
+        errorMsg = String(i18n.t('emailAlreadyRegistered'));
       } else if (err.code === 'auth/weak-password') {
         errorMsg = i18n.t('weakPassword') || 'Password is too weak';
       } else if (err.message) {
@@ -396,7 +396,7 @@ const SignupParent = () => {
 
               <View style={styles.inputGroup} onLayout={(e) => registerFieldLayout('email', e.nativeEvent.layout.y)}>
                 <Text style={styles.label}>
-                  {i18n.t('email_address') || 'Email Address'} <Text style={styles.optionalText}>(Optional)</Text>
+                  {i18n.t('email_address')} <Text style={styles.optionalText}>({i18n.t('optional')})</Text>
                 </Text>
                 <View style={[styles.inputWrapper, focusedField === 'email' && styles.inputWrapperFocused, missing.email && styles.inputWrapperError]}>
                   <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
@@ -412,7 +412,7 @@ const SignupParent = () => {
                     }}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    placeholder={i18n.t('email_address_ph') || 'Enter your email address (optional)'}
+                    placeholder={i18n.t('email_address_ph')}
                     placeholderTextColor="#999"
                   />
                 </View>

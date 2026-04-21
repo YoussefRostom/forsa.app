@@ -254,10 +254,14 @@ export default function AcademyFeedScreen() {
                 numberOfLines={1}
                 ellipsizeMode="tail"
               >
-                {item.author || 'Unknown'}
+                {item.author || (i18n.t('unknown') || 'Unknown')}
               </Text>
               <Text style={styles.feedType}>
-                {item.type === 'agent' ? '(Agent)' : item.type === 'player' ? '(Player)' : '(Academy)'}
+                {item.type === 'agent'
+                  ? `(${i18n.t('agent') || 'Agent'})`
+                  : item.type === 'player'
+                    ? `(${i18n.t('player') || 'Player'})`
+                    : `(${i18n.t('academy') || 'Academy'})`}
               </Text>
             </View>
           </View>

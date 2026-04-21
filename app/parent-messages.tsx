@@ -26,7 +26,7 @@ export default function ParentMessagesScreen() {
       const adminId = await findAdminUserId();
       if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
       const convId = await getOrCreateConversation(adminId);
-      router.push({ pathname: '/parent-chat', params: { conversationId: convId, otherUserId: adminId, contact: 'Admin' } });
+      router.push({ pathname: '/parent-chat', params: { conversationId: convId, otherUserId: adminId, contact: i18n.t('adminLabel') || 'Admin' } });
     } catch (err) {
       console.error(err);
     } finally {

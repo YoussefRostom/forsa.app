@@ -1,4 +1,38 @@
+import i18n from '../locales/i18n';
+
 // Validation utility functions
+
+const getTranslatedText = (key: string, fallback: string, options?: Record<string, string | number>) => {
+  const translated = String(i18n.t(key, options));
+  return translated && translated !== key ? translated : fallback;
+};
+
+const localizeFieldName = (fieldName: string): string => {
+  const normalized = (fieldName || '').trim().toLowerCase();
+  const fieldKeyMap: Record<string, string> = {
+    'first name': 'first_name',
+    'last name': 'last_name',
+    'parent name': 'parent_name',
+    'phone number': 'phone',
+    phone: 'phone',
+    password: 'password',
+    city: 'city',
+    address: 'address',
+    position: 'position',
+    'clinic name': 'clinic_name',
+    'academy name': 'academy_name',
+    email: 'email_address',
+    'email address': 'email_address',
+  };
+
+  const key = fieldKeyMap[normalized];
+  if (!key) {
+    return fieldName;
+  }
+
+  const translated = String(i18n.t(key));
+  return translated && translated !== key ? translated : fieldName;
+};
 
 /**
  * Normalize phone for Firebase Auth email generation (generic, any country).
@@ -32,18 +66,18 @@ export function normalizePhoneForTwilio(phone: string): string {
 
 export const validateEmail = (email: string): string | null => {
   if (!email) {
-    return 'Email is required';
+    return getTranslatedText('validationEmailRequired', 'Email is required');
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
-    return 'Please enter a valid email address';
+    return getTranslatedText('validationValidEmail', 'Please enter a valid email address');
   }
   return null;
 };
 
 export const validatePhone = (phone: string): string | null => {
   if (!phone) {
-    return 'Phone number is required';
+    return getTranslatedText('validationPhoneRequired', 'Phone number is required');
   }
   // Remove spaces, dashes, parentheses, and other formatting characters
   const cleaned = phone.replace(/[\s\-\(\)\.]/g, '');
@@ -56,28 +90,28 @@ export const validatePhone = (phone: string): string | null => {
   if (!phoneRegex.test(cleaned)) {
     // More specific error messages
     if (cleaned.length < 7) {
-      return 'Phone number must be at least 7 digits';
+      return getTranslatedText('validationPhoneMin', 'Phone number must be at least 7 digits');
     }
     if (cleaned.length > 15) {
-      return 'Phone number must be at most 15 digits';
+      return getTranslatedText('validationPhoneMax', 'Phone number must be at most 15 digits');
     }
     if (!/^\+?[0-9]+$/.test(cleaned)) {
-      return 'Phone number can only contain digits and optional + at the start';
+      return getTranslatedText('validationPhoneFormat', 'Phone number can only contain digits and optional + at the start');
     }
-    return 'Please enter a valid phone number';
+    return getTranslatedText('validationValidPhone', 'Please enter a valid phone number');
   }
   return null;
 };
 
 export const validatePassword = (password: string): string | null => {
   if (!password) {
-    return 'Password is required';
+    return getTranslatedText('validationPasswordRequired', 'Password is required');
   }
   if (password.length < 6) {
-    return 'Password must be at least 6 characters';
+    return getTranslatedText('validationPasswordMin', 'Password must be at least 6 characters');
   }
   if (password.length > 50) {
-    return 'Password must be less than 50 characters';
+    return getTranslatedText('validationPasswordMax', 'Password must be less than 50 characters');
   }
   // Optional: Add more password strength checks
   // if (!/[A-Z]/.test(password)) {
@@ -90,33 +124,35 @@ export const validatePassword = (password: string): string | null => {
 };
 
 export const validateName = (name: string, fieldName: string = 'Name'): string | null => {
+  const localizedFieldName = localizeFieldName(fieldName);
+
   if (!name || name.trim().length === 0) {
-    return `${fieldName} is required`;
+    return getTranslatedText('validationRequired', `${localizedFieldName} is required`, { field: localizedFieldName });
   }
   if (name.trim().length < 2) {
-    return `${fieldName} must be at least 2 characters`;
+    return getTranslatedText('validationMinChars', `${localizedFieldName} must be at least 2 characters`, { field: localizedFieldName });
   }
   if (name.trim().length > 50) {
-    return `${fieldName} must be less than 50 characters`;
+    return getTranslatedText('validationMaxChars', `${localizedFieldName} must be less than 50 characters`, { field: localizedFieldName });
   }
-  // Check for valid name characters (letters, spaces, hyphens, apostrophes)
-  const nameRegex = /^[a-zA-Z\s'-]+$/;
+  // Allow Latin and Arabic letters, spaces, hyphens, and apostrophes.
+  const nameRegex = /^[\p{L}\s'-]+$/u;
   if (!nameRegex.test(name.trim())) {
-    return `${fieldName} can only contain letters, spaces, hyphens, and apostrophes`;
+    return getTranslatedText('validationNameCharacters', `${localizedFieldName} can only contain letters, spaces, hyphens, and apostrophes`, { field: localizedFieldName });
   }
   return null;
 };
 
 export const validateDOB = (day: string, month: string, year: string): string | null => {
   if (!day || !month || !year) {
-    return 'Date of birth is required';
+    return getTranslatedText('validationDobRequired', 'Date of birth is required');
   }
   const dayNum = parseInt(day, 10);
   const monthNum = parseInt(month, 10);
   const yearNum = parseInt(year, 10);
 
   if (isNaN(dayNum) || isNaN(monthNum) || isNaN(yearNum)) {
-    return 'Please enter a valid date';
+    return getTranslatedText('validationValidDate', 'Please enter a valid date');
   }
 
   // Check if date is valid
@@ -126,14 +162,14 @@ export const validateDOB = (day: string, month: string, year: string): string | 
     date.getMonth() !== monthNum - 1 ||
     date.getDate() !== dayNum
   ) {
-    return 'Please enter a valid date';
+    return getTranslatedText('validationValidDate', 'Please enter a valid date');
   }
 
   // Check if age is reasonable (between 5 and 100 years)
   const today = new Date();
   const age = today.getFullYear() - yearNum;
   if (age < 5 || age > 100) {
-    return 'Please enter a valid date of birth';
+    return getTranslatedText('validationValidDob', 'Please enter a valid date of birth');
   }
 
   return null;
@@ -141,24 +177,25 @@ export const validateDOB = (day: string, month: string, year: string): string | 
 
 export const validateRequired = (value: string, fieldName: string): string | null => {
   if (!value || value.trim().length === 0) {
-    return `${fieldName} is required`;
+    const localizedFieldName = localizeFieldName(fieldName);
+    return getTranslatedText('validationRequired', `${localizedFieldName} is required`, { field: localizedFieldName });
   }
   return null;
 };
 
 export const validateCity = (city: string): string | null => {
   if (!city || city.trim().length === 0) {
-    return 'City is required';
+    return getTranslatedText('validationCityRequired', 'City is required');
   }
   return null;
 };
 
 export const validateAddress = (address: string): string | null => {
   if (!address || address.trim().length === 0) {
-    return 'Address is required';
+    return getTranslatedText('validationAddressRequired', 'Address is required');
   }
   if (address.trim().length < 5) {
-    return 'Address must be at least 5 characters';
+    return getTranslatedText('validationAddressMin', 'Address must be at least 5 characters');
   }
   return null;
 };

@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -90,6 +90,11 @@ const SignupPlayer = () => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView | null>(null);
   const fieldLayouts = useRef<Record<string, number>>({});
+  const cityLabels = useMemo(
+    () => (i18n.t('cities', { returnObjects: true }) as Record<string, string>) || {},
+    []
+  );
+  const cityEntries = useMemo(() => Object.entries(cityLabels), [cityLabels]);
 
   React.useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -147,12 +152,12 @@ const SignupPlayer = () => {
         break;
       case 'dob':
         if (!dob) {
-          error = 'Date of birth is required';
+          error = String(i18n.t('validationDobRequired'));
         } else {
           const today = new Date();
           const age = today.getFullYear() - dob.getFullYear();
           if (age < 5 || age > 100) {
-            error = 'Please enter a valid date of birth';
+            error = String(i18n.t('validationValidDob'));
           }
         }
         break;
@@ -489,8 +494,8 @@ const SignupPlayer = () => {
           <ScrollView
             ref={scrollViewRef}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="always"
-            keyboardDismissMode="none"
+            keyboardShouldPersistTaps="never"
+            keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
           >
             {formError && (
@@ -676,54 +681,56 @@ const SignupPlayer = () => {
                   >
                     <Ionicons name="location-outline" size={20} color="#999" style={styles.inputIcon} />
                     <Text style={[styles.cityText, !city && styles.cityPlaceholder]}>
-                      {city ? (i18n.t('cities', { returnObjects: true }) as Record<string, string>)[city] || city : i18n.t('selectCity')}
+                      {city ? cityLabels[city] || city : i18n.t('selectCity')}
                     </Text>
                     <Ionicons name="chevron-down" size={20} color="#999" />
                   </TouchableOpacity>
                   {errors.city && <Text style={styles.errorText}>{errors.city}</Text>}
 
-                  <Modal
-                    visible={showCityModal}
-                    transparent={true}
-                    animationType="fade"
-                    onRequestClose={() => setShowCityModal(false)}
-                  >
-                    <TouchableOpacity
-                      style={styles.modalOverlay}
-                      activeOpacity={1}
-                      onPress={() => setShowCityModal(false)}
+                  {showCityModal && (
+                    <Modal
+                      visible={showCityModal}
+                      transparent={true}
+                      animationType="fade"
+                      onRequestClose={() => setShowCityModal(false)}
                     >
-                      <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                          <Text style={styles.modalTitle}>{i18n.t('selectCity')}</Text>
-                          <TouchableOpacity onPress={() => setShowCityModal(false)}>
-                            <Ionicons name="close" size={24} color="#000" />
-                          </TouchableOpacity>
-                        </View>
-                        <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={true}>
-                          {Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => (
-                            <TouchableOpacity
-                              key={key}
-                              style={[styles.cityOption, city === key && styles.cityOptionSelected]}
-                              onPress={() => {
-                                setCity(key);
-                                if (missing.city) setMissing(m => ({ ...m, city: false }));
-                                validateField('city', key);
-                                setShowCityModal(false);
-                              }}
-                            >
-                              <Text style={[styles.cityOptionText, city === key && styles.cityOptionTextSelected]}>
-                                {label}
-                              </Text>
-                              {city === key && (
-                                <Ionicons name="checkmark" size={20} color="#fff" />
-                              )}
+                      <TouchableOpacity
+                        style={styles.modalOverlay}
+                        activeOpacity={1}
+                        onPress={() => setShowCityModal(false)}
+                      >
+                        <View style={styles.modalContent}>
+                          <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>{i18n.t('selectCity')}</Text>
+                            <TouchableOpacity onPress={() => setShowCityModal(false)}>
+                              <Ionicons name="close" size={24} color="#000" />
                             </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    </TouchableOpacity>
-                  </Modal>
+                          </View>
+                          <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={true}>
+                            {cityEntries.map(([key, label]) => (
+                              <TouchableOpacity
+                                key={key}
+                                style={[styles.cityOption, city === key && styles.cityOptionSelected]}
+                                onPress={() => {
+                                  setCity(key);
+                                  if (missing.city) setMissing(m => ({ ...m, city: false }));
+                                  validateField('city', key);
+                                  setShowCityModal(false);
+                                }}
+                              >
+                                <Text style={[styles.cityOptionText, city === key && styles.cityOptionTextSelected]}>
+                                  {label}
+                                </Text>
+                                {city === key && (
+                                  <Ionicons name="checkmark" size={20} color="#fff" />
+                                )}
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      </TouchableOpacity>
+                    </Modal>
+                  )}
                 </View>
               </View>
 
@@ -852,7 +859,7 @@ const SignupPlayer = () => {
 
                 <View style={styles.inputGroup} onLayout={(e) => registerFieldLayout('email', e.nativeEvent.layout.y)}>
                   <Text style={styles.label}>
-                    {i18n.t('email_address') || 'Email Address'} <Text style={{ color: '#999', fontSize: 14 }}>(Optional)</Text>
+                    {i18n.t('email_address')} <Text style={{ color: '#999', fontSize: 14 }}>({i18n.t('optional')})</Text>
                   </Text>
                   <View style={[styles.inputWrapper, focusedField === 'email' && styles.inputWrapperFocused, missing.email && styles.inputWrapperError]}>
                     <Ionicons name="mail-outline" size={20} color="#999" style={styles.inputIcon} />
@@ -881,7 +888,7 @@ const SignupPlayer = () => {
                       }}
                       autoCapitalize="none"
                       keyboardType="email-address"
-                      placeholder={i18n.t('email_address_ph') || 'Enter your email address (optional)'}
+                      placeholder={i18n.t('email_address_ph')}
                       placeholderTextColor="#999"
                     />
                   </View>
@@ -934,7 +941,7 @@ const SignupPlayer = () => {
                     ) : (
                       <View style={styles.nationalIdPlaceholder}>
                         <Ionicons name="document-outline" size={32} color="#999" />
-                        <Text style={styles.nationalIdText}>{i18n.t('upload_national_id') || 'Upload National ID'}</Text>
+                        <Text style={styles.nationalIdText}>{i18n.t('upload_national_id')}</Text>
                       </View>
                     )}
                   </TouchableOpacity>

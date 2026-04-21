@@ -1178,6 +1178,7 @@ export default {
   accepted: "Accepted",
   rejected: "Rejected",
   shiftPreference: "Shift Preference",
+  shiftPreferenceHint: "If your preferred date and time are not available, this helps the clinic choose the time range that suits you best.",
   dayShift: "Before 3PM",
   nightShift: "After 3PM",
 };

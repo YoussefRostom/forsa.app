@@ -177,7 +177,7 @@ export default function AcademyChatScreen() {
                 )}
                 <View style={[styles.messageBubble, isSent ? styles.myMessage : styles.systemMessage]}>
                   <Text style={isSent ? styles.myMessageText : styles.systemMessageText}>
-                    {item.content || (item.mediaUrl ? 'Media' : '')}
+                    {item.content || (item.mediaUrl ? (i18n.t('mediaLabel') || 'Media') : '')}
                   </Text>
                   {!!timeLabel && (
                     <Text style={isSent ? styles.messageMetaSent : styles.messageMetaReceived}>
@@ -194,7 +194,7 @@ export default function AcademyChatScreen() {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Ionicons name="chatbubble-ellipses-outline" size={46} color="#9ca3af" />
-              <Text style={styles.emptyStateText}>{i18n.t('noMessages') || 'No messages yet'}</Text>
+              <Text style={styles.emptyStateText}>{i18n.t('noMessagesYet') || 'No messages yet'}</Text>
               <Text style={styles.emptyStateSubtext}>{i18n.t('messagesWillAppearAfterStart') || 'Messages will appear here once the conversation starts.'}</Text>
             </View>
           }

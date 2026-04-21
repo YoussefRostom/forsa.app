@@ -423,7 +423,7 @@ export default function AcademyDetailsScreen() {
       Alert.alert(
         i18n.t('bookingRequestSent') || 'Booking Request Sent',
         i18n.t('privateTrainingBookingDesc') || 'Your private training booking request has been sent. You will be notified once the academy responds.',
-        [{ text: 'OK', onPress: () => router.push('/player-bookings') }]
+        [{ text: i18n.t('ok') || 'OK', onPress: () => router.push('/player-bookings') }]
       );
     } catch (error) {
       console.error('Private training booking error:', error);
@@ -468,7 +468,9 @@ export default function AcademyDetailsScreen() {
               <View style={styles.headerBadge}>
                 <Ionicons name="business-outline" size={14} color="#fff" />
                 <Text style={styles.headerBadgeText}>
-                  {Array.isArray(academy.locations) && academy.locations.length > 1 ? `${academy.locations.length} branches` : 'Main branch'}
+                  {Array.isArray(academy.locations) && academy.locations.length > 1
+                    ? `${academy.locations.length} ${i18n.t('branches') || 'branches'}`
+                    : (i18n.t('mainLocationLabel') || 'Main branch')}
                 </Text>
               </View>
             </View>

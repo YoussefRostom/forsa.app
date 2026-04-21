@@ -39,7 +39,7 @@ export default function AgentMessagesScreen() {
       const adminId = await findAdminUserId();
       if (!adminId) { Alert.alert(i18n.t('noAdminFound') || 'No admin found'); return; }
       const convId = await getOrCreateConversation(adminId);
-      router.push({ pathname: '/agent-messages', params: { conversationId: convId, otherUserId: adminId, name: 'Admin' } });
+      router.push({ pathname: '/agent-messages', params: { conversationId: convId, otherUserId: adminId, name: i18n.t('adminLabel') || 'Admin' } });
     } catch (err) {
       console.error(err);
     } finally {
@@ -210,7 +210,7 @@ export default function AgentMessagesScreen() {
                     styles.bubbleText,
                     isSent ? styles.agentBubbleText : styles.playerBubbleText
                   ]}>
-                    {item.content || (item.mediaUrl ? 'Media' : '')}
+                    {item.content || (item.mediaUrl ? (i18n.t('mediaLabel') || 'Media') : '')}
                   </Text>
                   {!!timeLabel && (
                     <Text style={isSent ? styles.messageMetaSent : styles.messageMetaReceived}>
@@ -226,7 +226,7 @@ export default function AgentMessagesScreen() {
           keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 40 }}>
-              <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 16 }}>{i18n.t('noMessages') || 'No messages yet'}</Text>
+              <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 16 }}>{i18n.t('noMessagesYet') || 'No messages yet'}</Text>
             </View>
           }
         />

@@ -244,6 +244,16 @@ export default function ParentSearchClinicsScreen() {
   const selectedSortLabel = locationLoading
     ? (i18n.t('gettingCurrentLocation') || 'Getting current location...')
     : (sortOptions.find((option) => option.key === sortBy)?.label || sortOptions[0].label);
+  const hasActiveFilters = Boolean(name || city || district || service || price || sortBy !== 'recommended');
+
+  const clearAllFilters = () => {
+    setName('');
+    setCity('');
+    setDistrict('');
+    setService('');
+    setPrice('');
+    setSortBy('recommended');
+  };
 
   useEffect(() => {
     if (city && district && !availableDistricts.some((item) => item.key === district)) {
@@ -456,10 +466,18 @@ export default function ParentSearchClinicsScreen() {
           <ScrollView
             style={styles.filtersCard}
             contentContainerStyle={styles.filtersCardContent}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
             nestedScrollEnabled={true}
+            scrollEnabled={true}
             keyboardShouldPersistTaps="handled"
           >
+            {hasActiveFilters ? (
+              <View style={styles.filtersHeaderRow}>
+                <TouchableOpacity style={styles.clearFiltersButton} onPress={clearAllFilters}>
+                  <Text style={styles.clearFiltersText}>{i18n.t('clearFilters') || 'Clear filters'}</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.filterRow}>
               <View style={styles.filterInputWrapper}>
                 <Ionicons name="search-outline" size={20} color="#999" style={styles.filterIcon} />
@@ -795,10 +813,29 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-    maxHeight: 300, // Limit height to enable scrolling
+    maxHeight: 300,
+    flexGrow: 0,
+    overflow: 'hidden',
   },
   filtersCardContent: {
     padding: 20,
+    paddingBottom: 24,
+  },
+  filtersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 12,
+  },
+  clearFiltersButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  clearFiltersText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
   },
   filterRow: {
     marginBottom: 12,

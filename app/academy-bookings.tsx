@@ -215,7 +215,7 @@ export default function AcademyBookingsScreen() {
       setOpeningAdminChat(true);
       const adminId = await findAdminUserId();
       if (!adminId) {
-        Alert.alert('Error', 'No admin found');
+        Alert.alert(i18n.t('error') || 'Error', i18n.t('noAdminFound') || 'No admin found');
         return;
       }
       const conversationId = await startConversationWithUser(adminId);
@@ -224,11 +224,11 @@ export default function AcademyBookingsScreen() {
         params: {
           conversationId,
           otherUserId: adminId,
-          contact: 'Admin'
+          contact: i18n.t('adminLabel') || 'Admin'
         }
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to start conversation');
+      Alert.alert(i18n.t('error') || 'Error', error.message || (i18n.t('failedToStartConversation') || 'Failed to start conversation'));
     } finally {
       setOpeningAdminChat(false);
     }
@@ -452,14 +452,18 @@ export default function AcademyBookingsScreen() {
                         <View style={styles.detailRow}>
                           <Ionicons name="people" size={18} color="rgba(255,255,255,0.7)" />
                           <Text style={styles.detailText}>
-                            {booking.sessionType === 'group' ? 'Group Session' : booking.sessionType === 'private' ? 'Private Session' : 'Semi-Private Session'}
+                            {booking.sessionType === 'group'
+                              ? (i18n.t('sessionGroup') || 'Group Session')
+                              : booking.sessionType === 'private'
+                                ? (i18n.t('sessionPrivate') || 'Private Session')
+                                : (i18n.t('sessionSemiPrivate') || 'Semi-Private Session')}
                           </Text>
                         </View>
                       )}
                       {booking.trainerName && (
                         <View style={styles.detailRow}>
                           <Ionicons name="person" size={18} color="rgba(255,255,255,0.7)" />
-                          <Text style={styles.detailText}>Trainer: {booking.trainerName}</Text>
+                          <Text style={styles.detailText}>{i18n.t('trainerLabel') || 'Trainer'}: {booking.trainerName}</Text>
                         </View>
                       )}
                       {booking.type === 'clinic' && (booking.service || booking.doctor) && (

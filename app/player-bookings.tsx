@@ -227,7 +227,7 @@ export default function PlayerBookingsScreen() {
       setOpeningAdminChat(true);
       const adminId = await findAdminUserId();
       if (!adminId) {
-        Alert.alert('Error', 'No admin found');
+        Alert.alert(i18n.t('error') || 'Error', i18n.t('noAdminFound') || 'No admin found');
         return;
       }
       const conversationId = await startConversationWithUser(adminId);
@@ -236,11 +236,11 @@ export default function PlayerBookingsScreen() {
         params: {
           conversationId,
           otherUserId: adminId,
-          name: 'Admin'
+          name: i18n.t('adminLabel') || 'Admin'
         }
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to start conversation');
+      Alert.alert(i18n.t('error') || 'Error', error.message || (i18n.t('failedToStartConversation') || 'Failed to start conversation'));
     } finally {
       setOpeningAdminChat(false);
     }
