@@ -219,13 +219,13 @@ const SignupPlayer = () => {
     }
 
     if (!dob) {
-      newErrors.dob = 'Date of birth is required';
+      newErrors.dob = String(i18n.t('validationDobRequired'));
       newMissing.dob = true;
     } else {
       const today = new Date();
       const age = today.getFullYear() - dob.getFullYear();
       if (age < 5 || age > 100) {
-        newErrors.dob = 'Please enter a valid date of birth';
+        newErrors.dob = String(i18n.t('validationValidDob'));
         newMissing.dob = true;
       }
     }
