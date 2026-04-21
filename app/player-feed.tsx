@@ -7,6 +7,7 @@ import { Animated, Easing, FlatList, Image, Platform, RefreshControl, StyleSheet
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import PostActionsMenu from '../components/PostActionsMenu';
+import UploadProgressBanner from '../components/UploadProgressBanner';
 import ZoomableFeedMedia from '../components/feed/ZoomableFeedMedia';
 import { auth } from '../lib/firebase';
 import i18n from '../locales/i18n';
@@ -351,6 +352,8 @@ export default function PlayerFeedScreen() {
                       <Text style={styles.headerSubtitle}>{i18n.t('latestUpdates') || 'Latest updates from the community'}</Text>
                     </View>
                   </View>
+
+                  <UploadProgressBanner />
 
                   <View style={styles.composerCard}>
                     <View style={styles.composerTopRow}>

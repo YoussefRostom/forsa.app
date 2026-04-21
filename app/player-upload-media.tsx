@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { collection, getDocs } from 'firebase/firestore';
@@ -10,6 +10,7 @@ import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { auth, db } from '../lib/firebase';
 import i18n from '../locales/i18n';
 import { uploadAndSaveMedia, ResourceType, type TaggedUserMeta } from '../services/MediaService';
+import { failGlobalUpload, finishGlobalUpload, startGlobalUpload, updateGlobalUploadProgress } from '../services/UploadProgressService';
 import { getCurrentUserRole } from '../services/UserRoleService';
 
 type MediaItem = {
@@ -33,22 +34,6 @@ const resolveDisplayName = (data: any) => {
   return data?.academyName || data?.agentName || data?.clinicName || data?.parentName || data?.name ||
     (data?.firstName && data?.lastName ? `${data.firstName} ${data.lastName}`.trim() : data?.firstName) ||
     data?.email || 'User';
-};
-
-const formatEtaLabel = (seconds: number | null) => {
-  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return null;
-  if (seconds < 60) return `${seconds}s`;
-
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-
-  if (minutes >= 60) {
-    const hours = Math.floor(minutes / 60);
-    const remMinutes = minutes % 60;
-    return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
-  }
-
-  return remainingSeconds > 0 ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
 };
 
 const reindexRecord = <T,>(record: Record<number, T>, removedIndex: number) => {
@@ -114,6 +99,11 @@ const insertMentionIntoCaption = (text: string, userName: string) => {
 export default function PlayerUploadMediaScreen() {
   const router = useRouter();
   const { openMenu } = useHamburgerMenu();
+  const isMountedRef = useRef(true);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const mediaCardYRef = useRef(0);
+  const captionCardYRef = useRef(0);
+  const previousMediaCountRef = useRef(0);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [captionDraft, setCaptionDraft] = useState('');
   const [showCaptionInput, setShowCaptionInput] = useState(false);
@@ -121,9 +111,6 @@ export default function PlayerUploadMediaScreen() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: number]: number }>({});
   const [uploadStatus, setUploadStatus] = useState<Record<number, UploadStatus>>({});
-  const [overallProgress, setOverallProgress] = useState(0);
-  const [estimatedSecondsRemaining, setEstimatedSecondsRemaining] = useState<number | null>(null);
-  const [activeUploadIndex, setActiveUploadIndex] = useState<number | null>(null);
   const [editingMediaIndex, setEditingMediaIndex] = useState<number | null>(null);
   const [taggedUsers, setTaggedUsers] = useState<TaggableUser[]>([]);
   const [availableUsers, setAvailableUsers] = useState<TaggableUser[]>([]);
@@ -147,6 +134,19 @@ export default function PlayerUploadMediaScreen() {
         return user.name.toLowerCase().includes(captionMentionNormalized) || String(user.role || '').toLowerCase().includes(captionMentionNormalized);
       })
       .slice(0, 6);
+
+  const scrollToPosition = (y: number) => {
+    const targetY = Math.max(0, y - 16);
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollTo({ y: targetY, animated: true });
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -190,6 +190,33 @@ export default function PlayerUploadMediaScreen() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!showCaptionInput || !pendingMedia) return;
+
+    const timer = setTimeout(() => {
+      if (captionCardYRef.current > 0) {
+        scrollToPosition(captionCardYRef.current);
+      } else {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [showCaptionInput, pendingMedia?.uri]);
+
+  useEffect(() => {
+    const previousCount = previousMediaCountRef.current;
+    if (media.length > previousCount) {
+      const timer = setTimeout(() => {
+        scrollToPosition(mediaCardYRef.current);
+      }, 120);
+      previousMediaCountRef.current = media.length;
+      return () => clearTimeout(timer);
+    }
+
+    previousMediaCountRef.current = media.length;
+  }, [media.length]);
 
   const resetCaptionEditor = (clearTags = false) => {
     setCaptionDraft('');
@@ -340,9 +367,6 @@ export default function PlayerUploadMediaScreen() {
     }
 
     setUploading(true);
-    setOverallProgress(0);
-    setEstimatedSecondsRemaining(null);
-    setActiveUploadIndex(indicesToUpload[0] ?? 0);
     setUploadStatus((prev) => {
       const next = { ...prev };
       indicesToUpload.forEach((index) => {
@@ -350,9 +374,19 @@ export default function PlayerUploadMediaScreen() {
       });
       return next;
     });
+    const meterUploadingLabel = i18n.t('uploadMeterUploadingMedia') || 'Uploading media...';
+    startGlobalUpload(indicesToUpload.length, meterUploadingLabel);
+
+    // Move user to feed immediately while upload continues in background.
+    try {
+      const role = await getCurrentUserRole();
+      const feedRoute = `/${role}-feed`;
+      router.replace(feedRoute as any);
+    } catch {
+      router.replace('/player-feed' as any);
+    }
 
     const uploadResults: { success: boolean; error?: string }[] = [];
-    const startedAt = Date.now();
 
     try {
       for (let step = 0; step < indicesToUpload.length; step++) {
@@ -360,9 +394,10 @@ export default function PlayerUploadMediaScreen() {
         const item = media[i];
         if (!item) continue;
 
-        setActiveUploadIndex(i);
-        setUploadProgress((prev) => ({ ...prev, [i]: 0 }));
-        setUploadStatus((prev) => ({ ...prev, [i]: 'uploading' }));
+        if (isMountedRef.current) {
+          setUploadProgress((prev) => ({ ...prev, [i]: 0 }));
+          setUploadStatus((prev) => ({ ...prev, [i]: 'uploading' }));
+        }
 
         try {
           const allowedTaggedUsers = taggedUsers
@@ -370,34 +405,58 @@ export default function PlayerUploadMediaScreen() {
             .filter((entry, index, array) => String(entry.role || '').toLowerCase() !== 'academy' || array.findIndex((candidate) => candidate.role === 'academy') === index)
             .slice(0, MAX_TAGGED_USERS);
 
-          await uploadAndSaveMedia(
-            item.uri,
-            item.type as ResourceType,
-            'public',
-            item.caption || '',
-            (progress) => {
-              const safeProgress = Math.max(0, Math.min(100, progress));
-              const overall = ((step + safeProgress / 100) / indicesToUpload.length) * 100;
-              const roundedOverall = Math.round(overall);
+          // Simulated-progress ticker: advances the bar slowly between real XHR events
+          // so users see continuous movement rather than a jump from 0→10 then done.
+          let lastRealProgress = 0;
+          let simulatedProgress = 0;
 
-              setUploadProgress((prev) => ({ ...prev, [i]: safeProgress }));
-              setOverallProgress(roundedOverall);
+          const tickerInterval = setInterval(() => {
+            // Cap simulation at 92% — never let it fake-complete.
+            const cap = Math.min(92, lastRealProgress + 35);
+            if (simulatedProgress < cap) {
+              simulatedProgress = Math.min(cap, simulatedProgress + 1.5);
+              const simOverall = ((step + simulatedProgress / 100) / indicesToUpload.length) * 100;
+              updateGlobalUploadProgress(Math.round(simOverall), step + 1, indicesToUpload.length, meterUploadingLabel);
+            }
+          }, 300);
 
-              if (overall > 1) {
-                const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-                const estimatedRemaining = Math.max(0, Math.round((elapsedSeconds / overall) * (100 - overall)));
-                setEstimatedSecondsRemaining(estimatedRemaining);
-              }
-            },
-            allowedTaggedUsers
-          );
+          try {
+            await uploadAndSaveMedia(
+              item.uri,
+              item.type as ResourceType,
+              'public',
+              item.caption || '',
+              (progress) => {
+                const safeProgress = Math.max(0, Math.min(100, progress));
+                lastRealProgress = safeProgress;
+                // Only push real progress if it's ahead of simulated to avoid backward jumps.
+                if (safeProgress >= simulatedProgress) {
+                  simulatedProgress = safeProgress;
+                  const overall = ((step + safeProgress / 100) / indicesToUpload.length) * 100;
+                  const roundedOverall = Math.round(overall);
 
-          setUploadProgress((prev) => ({ ...prev, [i]: 100 }));
-          setUploadStatus((prev) => ({ ...prev, [i]: 'success' }));
+                  if (isMountedRef.current) {
+                    setUploadProgress((prev) => ({ ...prev, [i]: safeProgress }));
+                  }
+                  updateGlobalUploadProgress(roundedOverall, step + 1, indicesToUpload.length, meterUploadingLabel);
+                }
+              },
+              allowedTaggedUsers
+            );
+          } finally {
+            clearInterval(tickerInterval);
+          }
+
+          if (isMountedRef.current) {
+            setUploadProgress((prev) => ({ ...prev, [i]: 100 }));
+            setUploadStatus((prev) => ({ ...prev, [i]: 'success' }));
+          }
           uploadResults.push({ success: true });
         } catch (error: any) {
           console.error(`Upload failed for item ${i}:`, error);
-          setUploadStatus((prev) => ({ ...prev, [i]: 'failed' }));
+          if (isMountedRef.current) {
+            setUploadStatus((prev) => ({ ...prev, [i]: 'failed' }));
+          }
           uploadResults.push({
             success: false,
             error: error.message || 'Upload failed',
@@ -409,38 +468,13 @@ export default function PlayerUploadMediaScreen() {
       const failCount = uploadResults.length - successCount;
 
       if (successCount > 0) {
-        const successMessage = failCount > 0
-          ? (i18n.t('uploadPartialSuccess', { successCount, failCount }) || `${successCount} item(s) uploaded successfully. ${failCount} item(s) are still saved here so you can retry them.`)
-          : (i18n.t('uploadSuccessCount', { count: successCount }) || `${successCount} media item(s) uploaded successfully.`);
-
-        Alert.alert(
-          i18n.t('success') || 'Success',
-          successMessage,
-          [
-            {
-              text: i18n.t('ok') || 'OK',
-              onPress: async () => {
-                if (failCount > 0) return;
-                try {
-                  setMedia([]);
-                  setUploadStatus({});
-                  setUploadProgress({});
-                  setTaggedUsers([]);
-                  const role = await getCurrentUserRole();
-                  const feedRoute = `/${role}-feed`;
-                  router.replace(feedRoute as any);
-                } catch (error) {
-                  console.error('Error getting user role, redirecting to player feed:', error);
-                  router.replace('/player-feed' as any);
-                }
-              },
-            },
-          ]
-        );
+        const completionLabel = failCount > 0
+          ? (i18n.t('uploadMeterCompletedWithFailures', { successCount, failCount }) || `${successCount} uploaded, ${failCount} failed`)
+          : (i18n.t('uploadMeterComplete') || 'Upload complete');
+        finishGlobalUpload(successCount, failCount, completionLabel);
       } else {
         const firstError = uploadResults.find((result) => !result.success)?.error;
-        Alert.alert(
-          i18n.t('error') || 'Error',
+        failGlobalUpload(
           firstError
             ? `${i18n.t('uploadAllFailedPrefix') || 'All uploads failed.'} ${firstError}`
             : (i18n.t('uploadFailedTryAgain') || 'All uploads failed. Please try again.')
@@ -448,15 +482,11 @@ export default function PlayerUploadMediaScreen() {
       }
     } catch (error: any) {
       console.error('Upload error:', error);
-      Alert.alert(
-        i18n.t('error') || 'Error',
-        error.message || (i18n.t('uploadFailedTryAgain') || 'Failed to upload media. Please try again.')
-      );
+      failGlobalUpload(error.message || (i18n.t('uploadFailedTryAgain') || 'Failed to upload media. Please try again.'));
     } finally {
-      setUploading(false);
-      setOverallProgress(0);
-      setEstimatedSecondsRemaining(null);
-      setActiveUploadIndex(null);
+      if (isMountedRef.current) {
+        setUploading(false);
+      }
     }
   };
 
@@ -525,6 +555,7 @@ export default function PlayerUploadMediaScreen() {
           <HamburgerMenu />
 
           <ScrollView 
+            ref={scrollViewRef}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -556,30 +587,12 @@ export default function PlayerUploadMediaScreen() {
               </View>
             </View>
 
-            {uploading && media.length > 0 && (
-              <View style={styles.progressCard}>
-                <View style={styles.progressHeaderRow}>
-                  <Text style={styles.progressTitle}>{i18n.t('uploadInProgress') || 'Upload in progress'}</Text>
-                  <Text style={styles.progressPercent}>{overallProgress}%</Text>
-                </View>
-                <Text style={styles.progressSubtitle}>
-                  {i18n.t('uploadingItemProgress', {
-                    current: (activeUploadIndex ?? 0) + 1,
-                    total: media.length,
-                  }) || `Uploading item ${(activeUploadIndex ?? 0) + 1} of ${media.length}`}
-                </Text>
-                <Text style={styles.progressEtaText}>
-                  {estimatedSecondsRemaining !== null
-                    ? `${i18n.t('estimatedTimeLeft') || 'Estimated time left'}: ${formatEtaLabel(estimatedSecondsRemaining)}`
-                    : (i18n.t('preparingUploadStatus') || 'Preparing upload...')}
-                </Text>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${Math.max(overallProgress, 4)}%` }]} />
-                </View>
-              </View>
-            )}
-
-            <View style={styles.mediaCard}>
+            <View
+              style={styles.mediaCard}
+              onLayout={(event) => {
+                mediaCardYRef.current = event.nativeEvent.layout.y;
+              }}
+            >
               <View style={styles.sectionHeaderRow}>
                 <View style={styles.sectionTitleWrap}>
                   <Text style={styles.sectionTitle}>{i18n.t('mediaSection') || 'Media'}</Text>
@@ -693,7 +706,12 @@ export default function PlayerUploadMediaScreen() {
             </View>
 
             {showCaptionInput && pendingMedia && (
-              <View style={styles.captionCard}>
+              <View
+                style={styles.captionCard}
+                onLayout={(event) => {
+                  captionCardYRef.current = event.nativeEvent.layout.y;
+                }}
+              >
                 <Text style={styles.captionLabel}>
                   {editingMediaIndex !== null ? (i18n.t('editCaption') || 'Edit caption') : (i18n.t('caption') || 'Caption')}
                 </Text>
@@ -847,55 +865,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingBottom: 40,
-  },
-  progressCard: {
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  progressHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  progressTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  progressPercent: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  progressSubtitle: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 6,
-  },
-  progressEtaText: {
-    fontSize: 12,
-    color: '#111827',
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  progressTrack: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: '#e5e7eb',
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: '#111827',
   },
   mediaCard: {
     backgroundColor: '#fff',

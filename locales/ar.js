@@ -58,6 +58,12 @@ export default {
   feed: "المنشورات",
   saveFailed: "تعذر الحفظ.",
   loading: "جارٍ التحميل...",
+  uploadMeterUploadingMedia: "جارٍ رفع الوسائط...",
+  uploadMeterItemProgress: "{{current}}/{{total}}",
+  uploadMeterDone: "تم",
+  uploadMeterComplete: "اكتمل الرفع",
+  uploadMeterCompletedWithFailures: "تم رفع {{successCount}} وفشل {{failCount}}",
+  noMessagesYet: "لا توجد رسائل بعد",
   noPosts: "لا توجد منشورات بعد.",
   createPost: "إنشاء منشور",
 

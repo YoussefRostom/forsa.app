@@ -8,6 +8,7 @@ import { Video, ResizeMode } from 'expo-av';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import PostActionsMenu from '../components/PostActionsMenu';
+import UploadProgressBanner from '../components/UploadProgressBanner';
 import ZoomableFeedMedia from '../components/feed/ZoomableFeedMedia';
 import i18n from '../locales/i18n';
 import { auth } from '../lib/firebase';
@@ -276,6 +277,8 @@ export default function AgentFeedScreen() {
               <Text style={styles.headerSubtitle}>{i18n.t('latestUpdates') || 'Latest updates from players'}</Text>
             </View>
       </View>
+
+      <UploadProgressBanner />
 
       <HamburgerMenu />
 
