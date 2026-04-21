@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "forsa-app",
-    "slug": "forsa-app",
+    "name": "ForsaEg",
+    "slug": "forsa-eg",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "forsaapp",
+    "icon": "./assets/images/profile.png",
+    "scheme": "forsaeg",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yousseffrostom.forsaapp",
+      "bundleIdentifier": "com.yousseffrostom.forsaeg",
       "buildNumber": "42",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -25,7 +25,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.yousseffrostom.forsaapp",
+      "package": "com.yousseffrostom.forsaeg",
       "versionCode": 1,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
