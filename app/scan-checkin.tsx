@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  ActivityIndicator,
   Modal,
   TextInput,
   ScrollView,
@@ -18,6 +17,7 @@ import { auth, db } from '../lib/firebase';
 import i18n from '../locales/i18n';
 import { createCheckInFromScan, type CreateCheckInOptions } from '../services/CheckInService';
 import { getCurrentUserRole } from '../services/UserRoleService';
+import FootballLoader from '../components/FootballLoader';
 
 // Try to import expo-camera
 // Silently fallback to manual input if not available (no warnings)
@@ -94,7 +94,7 @@ function ManualCheckInScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
           disabled={processing || !manualCode.trim()}
         >
           {processing ? (
-            <ActivityIndicator color="#fff" />
+            <FootballLoader color="#fff" />
           ) : (
             <Text style={styles.submitButtonText}>{i18n.t('checkIn') || 'Check-in'}</Text>
           )}
@@ -217,7 +217,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
             disabled={processing || !manualCode.trim()}
           >
             {processing ? (
-              <ActivityIndicator color="#fff" />
+              <FootballLoader color="#fff" />
             ) : (
               <Text style={styles.submitButtonText}>{i18n.t('checkIn') || 'Check-in'}</Text>
             )}
@@ -260,7 +260,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
             disabled={processing || !manualCode.trim()}
           >
             {processing ? (
-              <ActivityIndicator color="#fff" />
+              <FootballLoader color="#fff" />
             ) : (
               <Text style={styles.submitButtonText}>{i18n.t('checkIn') || 'Check-in'}</Text>
             )}
@@ -281,7 +281,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#fff" />
+          <FootballLoader size="large" color="#fff" />
           <Text style={styles.loadingText}>{i18n.t('checkingPermissions') || 'Checking permissions...'}</Text>
         </View>
       </View>
@@ -347,7 +347,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
               disabled={processing || !manualCode.trim()}
             >
               {processing ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <FootballLoader color="#fff" size="small" />
               ) : (
                 <Text style={styles.submitButtonTextSmall}>{i18n.t('checkIn') || 'Check-in'}</Text>
               )}
@@ -392,7 +392,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
         </View>
       ) : (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#fff" />
+          <FootballLoader size="large" color="#fff" />
           <Text style={styles.loadingText}>
             {!permission?.granted ? (i18n.t('cameraWaiting') || 'Waiting for camera access...') : (i18n.t('cameraUnavailableManual') || 'Camera unavailable. You can still enter the check-in code manually.')}
           </Text>
@@ -461,7 +461,7 @@ function CameraScannerScreen({ onCheckIn, processing }: { onCheckIn: (code: stri
               disabled={processing || !manualCode.trim()}
             >
               {processing ? (
-                <ActivityIndicator color="#fff" />
+                <FootballLoader color="#fff" />
               ) : (
                 <Text style={styles.modalSubmitButtonText}>{i18n.t('checkIn') || 'Check-in'}</Text>
               )}
@@ -932,7 +932,7 @@ export default function ScanCheckInScreen() {
             )}
 
             {servicesLoading ? (
-              <ActivityIndicator color="#007AFF" style={{ marginVertical: 16 }} />
+              <FootballLoader color="#007AFF" style={{ marginVertical: 16 }} />
             ) : visibleProviderServices.length === 0 ? (
               <Text style={{ color: '#999', textAlign: 'center', marginVertical: 12 }}>
                 {userRole === 'academy' && academyWalkInMode === 'private_training'
@@ -1008,7 +1008,7 @@ export default function ScanCheckInScreen() {
         <Modal transparent visible={processing} animationType="fade">
           <View style={styles.processingOverlay}>
             <View style={styles.processingBox}>
-              <ActivityIndicator size="large" color="#007AFF" />
+              <FootballLoader size="large" color="#007AFF" />
               <Text style={styles.processingText}>{i18n.t('processingCheckIn') || 'Processing check-in...'}</Text>
             </View>
           </View>

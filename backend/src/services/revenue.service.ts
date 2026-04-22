@@ -1,5 +1,9 @@
 import { db } from '../config/firebase';
 import { UserRole } from '../types';
+import {
+  resolveBookingCustomerName,
+  resolveUserDisplayName as getUserDisplayName,
+} from '../utils/displayName.util';
 
 type CommissionMode = 'percentage' | 'flat';
 type RevenueSource = 'booking' | 'checkin';
@@ -104,28 +108,6 @@ function normalizeRevenueSource(value: unknown): RevenueSource | 'unknown' {
   return 'unknown';
 }
 
-function getUserDisplayName(data: any): string | null {
-  const candidates = [
-    data?.providerName,
-    data?.customerName,
-    data?.academyName,
-    data?.clinicName,
-    data?.playerName,
-    data?.parentName,
-    data?.agentName,
-    data?.name,
-    [data?.firstName, data?.lastName].filter(Boolean).join(' ').trim(),
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-
-  return null;
-}
-
 function resolveBookingType(booking: any): string {
   const raw = normalizeRole(booking?.bookingType || booking?.type || booking?.providerRole);
   if (raw === 'academy' || raw === 'clinic') return raw;
@@ -159,24 +141,6 @@ function resolveBookingCustomerId(booking: any): string | null {
       return candidate.trim();
     }
   }
-  return null;
-}
-
-function resolveBookingCustomerName(booking: any): string | null {
-  const candidates = [
-    booking?.customerName,
-    booking?.playerName,
-    booking?.parentName,
-    booking?.academyName,
-    booking?.userName,
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-
   return null;
 }
 

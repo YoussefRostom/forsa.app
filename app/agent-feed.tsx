@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, onSnapshot, getFirestore, orderBy, query, where } from 'firebase/firestore';
 import React, { useRef } from 'react';
-import { ActivityIndicator, Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
@@ -13,6 +13,7 @@ import ZoomableFeedMedia from '../components/feed/ZoomableFeedMedia';
 import i18n from '../locales/i18n';
 import { auth } from '../lib/firebase';
 import { getUserDisplayName } from '../services/AgentDataService';
+import FootballLoader from '../components/FootballLoader';
 
 export default function AgentFeedScreen() {
   const router = useRouter();
@@ -284,7 +285,7 @@ export default function AgentFeedScreen() {
 
       {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color="#fff" />
+              <FootballLoader size="large" color="#fff" />
               <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
             </View>
       ) : (

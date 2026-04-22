@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useState, useEffect } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Alert } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert } from 'react-native';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 
 const allServices = [
   { key: 'spa', label: i18n.t('spa') || 'Spa' },
@@ -112,7 +113,7 @@ const ClinicEditServicesScreen = () => {
   if (loading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' }]}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -222,7 +223,7 @@ const ClinicEditServicesScreen = () => {
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator color="#fff" />
+                  <FootballLoader color="#fff" />
                 ) : (
                   <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>
                 )}

@@ -3,7 +3,6 @@ import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
 import {
   Alert,
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -15,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import FootballLoader from '../../components/FootballLoader';
 import i18n from '../../locales/i18n';
 import { uploadAndSaveMedia, ResourceType } from '../../services/MediaService';
 import { isAdmin } from '../../services/ModerationService';
@@ -207,7 +207,7 @@ export default function AdminUploadMediaScreen() {
                   )}
                   {uploadProgress[index] && (
                     <View style={S.uploadOverlay}>
-                      <ActivityIndicator size="large" color="#fff" />
+                      <FootballLoader size="large" color="#fff" />
                     </View>
                   )}
                 </View>
@@ -228,7 +228,7 @@ export default function AdminUploadMediaScreen() {
         {media.length > 0 && (
           <TouchableOpacity style={[S.submitButton, uploading && S.submitButtonDisabled]} onPress={handleSubmit} disabled={uploading}>
             {uploading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <FootballLoader size="small" color="#fff" />
             ) : (
               <>
                 <Ionicons name="cloud-upload" size={20} color="#fff" />

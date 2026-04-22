@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Video, ResizeMode } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, ActivityIndicator } from 'react-native';
+import { Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import SimpleSelect from '../components/SimpleSelect';
@@ -12,6 +12,7 @@ import i18n from '../locales/i18n';
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import { fetchAgentPlayersPage, type AgentPlayer } from '../services/AgentDataService';
 import { type QueryDocumentSnapshot, type DocumentData } from 'firebase/firestore';
+import FootballLoader from '../components/FootballLoader';
 
 // Define the Player type for type safety
 type Player = AgentPlayer;
@@ -393,7 +394,7 @@ export default function AgentPlayersScreen() {
             ListEmptyComponent={
               loading ? (
                 <View style={styles.emptyState}>
-                  <ActivityIndicator size="large" color="#fff" />
+                  <FootballLoader size="large" color="#fff" />
                   <Text style={styles.emptyText}>{i18n.t('loading') || 'Loading...'}</Text>
                 </View>
               ) : errorMessage ? (
@@ -415,7 +416,7 @@ export default function AgentPlayersScreen() {
               loading || filteredPlayers.length === 0 ? null : (
                 <View style={styles.footerLoaderWrap}>
                   {loadingMore ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <FootballLoader size="small" color="#fff" />
                   ) : hasMore ? (
                     <TouchableOpacity style={styles.loadMoreButton} onPress={loadMorePlayers}>
                       <Text style={styles.loadMoreButtonText}>{i18n.t('loadMore') || 'Load more'}</Text>

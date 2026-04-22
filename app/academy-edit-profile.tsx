@@ -4,14 +4,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc, addDoc } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { buildBookingBranchPayload, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { auth, db } from '../lib/firebase';
 import { uploadMedia } from '../services/MediaService';
 import * as ImagePicker from 'expo-image-picker';
+import FootballLoader from '../components/FootballLoader';
 
 const TIME_OPTIONS: string[] = [];
 for (let h = 0; h < 24; h++) {
@@ -410,6 +412,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
         phone: phone || null,
         email: email || null,
         academyName: academyName || null,
+        username: resolveUserDisplayName({ academyName }, 'Academy'),
         // Removed city from main profile (now managed per-branch)
         description: description || null,
         mapUrl: mapUrl.trim() || null,
@@ -502,7 +505,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -781,7 +784,7 @@ export default function AcademyEditProfileScreen({ academyName: academyNameProp 
                 activeOpacity={0.8}
               >
                 {saving ? (
-                  <ActivityIndicator color="#fff" />
+                  <FootballLoader color="#fff" />
                 ) : (
                   <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>
                 )}

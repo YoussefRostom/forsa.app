@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -18,6 +17,8 @@ import { Video, ResizeMode } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { collection, query, where, onSnapshot, getDocs, getFirestore } from 'firebase/firestore';
 import { auth } from '../../lib/firebase';
+import i18n from '../../locales/i18n';
+import FootballLoader from '../../components/FootballLoader';
 import { isAdmin } from '../../services/ModerationService';
 import { updateMediaCaption, deleteAdminMedia, type MediaDoc } from '../../services/MediaService';
 
@@ -50,7 +51,10 @@ export default function AdminMyMediaScreen() {
     const checkAccess = async () => {
       const admin = await isAdmin();
       if (!admin) {
-        Alert.alert('Access Denied', 'You must be an admin to access this screen.');
+        Alert.alert(
+          i18n.t('accessDenied') || 'Access Denied',
+          i18n.t('adminMediaAccessDenied') || 'You must be an admin to access this screen.'
+        );
         router.back();
       }
     };
@@ -124,9 +128,9 @@ export default function AdminMyMediaScreen() {
       await updateMediaCaption(editingMedia.id, editingMedia.postId, editCaption);
       setEditingMedia(null);
       setEditCaption('');
-      Alert.alert('Success', 'Caption updated successfully.');
+      Alert.alert(i18n.t('success') || 'Success', i18n.t('captionUpdated') || 'Caption updated successfully');
     } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Failed to update caption.');
+      Alert.alert(i18n.t('error') || 'Error', error?.message || (i18n.t('failedToUpdateCaption') || 'Failed to update caption.'));
     } finally {
       setSaving(false);
     }
@@ -134,20 +138,20 @@ export default function AdminMyMediaScreen() {
 
   const handleDelete = (media: OwnedMedia) => {
     Alert.alert(
-      'Delete Media',
-      'Are you sure you want to delete this media? This action cannot be undone.',
+      i18n.t('deleteMedia') || 'Delete media',
+      i18n.t('deleteMediaConfirm') || 'Are you sure you want to delete this media?',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: i18n.t('cancel') || 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: i18n.t('delete') || 'Delete',
           style: 'destructive',
           onPress: async () => {
             setDeleting(media.id);
             try {
               await deleteAdminMedia(media.id, media.postId || null);
-              Alert.alert('Success', 'Media deleted successfully.');
+              Alert.alert(i18n.t('success') || 'Success', i18n.t('mediaDeleted') || 'Media deleted successfully.');
             } catch (error: any) {
-              Alert.alert('Error', error?.message || 'Failed to delete media.');
+              Alert.alert(i18n.t('error') || 'Error', error?.message || (i18n.t('failedToDeleteMedia') || 'Failed to delete media.'));
             } finally {
               setDeleting(null);
             }
@@ -160,8 +164,8 @@ export default function AdminMyMediaScreen() {
   if (loading) {
     return (
       <View style={S.center}>
-        <ActivityIndicator size="large" color={C.blue} />
-        <Text style={S.loadingText}>Loading your media...</Text>
+        <FootballLoader size="large" color={C.blue} />
+        <Text style={S.loadingText}>{i18n.t('loadingYourMedia') || 'Loading your media...'}</Text>
       </View>
     );
   }
@@ -173,8 +177,8 @@ export default function AdminMyMediaScreen() {
           <Ionicons name="arrow-back" size={20} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={S.headerTitle}>My Media</Text>
-          <Text style={S.headerSub}>Manage media uploaded from this admin account.</Text>
+          <Text style={S.headerTitle}>{i18n.t('myMedia') || 'My Media'}</Text>
+          <Text style={S.headerSub}>{i18n.t('adminMediaManageHint') || 'Manage media uploaded from this admin account.'}</Text>
         </View>
         <TouchableOpacity style={S.headerAction} onPress={() => router.push('/(admin)/upload-media')}>
           <Ionicons name="add" size={20} color="#fff" />
@@ -182,19 +186,19 @@ export default function AdminMyMediaScreen() {
       </View>
 
       <View style={S.statsRow}>
-        <View style={S.statCard}><Text style={S.statLabel}>Total</Text><Text style={S.statValue}>{stats.total}</Text></View>
-        <View style={S.statCard}><Text style={S.statLabel}>Images</Text><Text style={[S.statValue, { color: C.blue }]}>{stats.images}</Text></View>
-        <View style={S.statCard}><Text style={S.statLabel}>Videos</Text><Text style={[S.statValue, { color: '#0d9488' }]}>{stats.videos}</Text></View>
+        <View style={S.statCard}><Text style={S.statLabel}>{i18n.t('total') || 'Total'}</Text><Text style={S.statValue}>{stats.total}</Text></View>
+        <View style={S.statCard}><Text style={S.statLabel}>{i18n.t('images') || 'Images'}</Text><Text style={[S.statValue, { color: C.blue }]}>{stats.images}</Text></View>
+        <View style={S.statCard}><Text style={S.statLabel}>{i18n.t('videos') || 'Videos'}</Text><Text style={[S.statValue, { color: '#0d9488' }]}>{stats.videos}</Text></View>
       </View>
 
       <ScrollView style={S.scrollView} contentContainerStyle={S.scrollContent} showsVerticalScrollIndicator={false}>
         {mediaList.length === 0 ? (
           <View style={S.emptyContainer}>
             <View style={S.emptyIcon}><Ionicons name="images-outline" size={30} color={C.muted} /></View>
-            <Text style={S.emptyTitle}>No media uploaded yet</Text>
-            <Text style={S.emptySub}>Upload your first media item to start publishing content.</Text>
+            <Text style={S.emptyTitle}>{i18n.t('noMediaUploadedYet') || 'No media uploaded yet'}</Text>
+            <Text style={S.emptySub}>{i18n.t('uploadFirstMediaHint') || 'Upload your first media item to start publishing content.'}</Text>
             <TouchableOpacity style={S.primaryButton} onPress={() => router.push('/(admin)/upload-media')}>
-              <Text style={S.primaryButtonText}>Upload Media</Text>
+              <Text style={S.primaryButtonText}>{i18n.t('uploadMedia') || 'Upload Media'}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -209,16 +213,16 @@ export default function AdminMyMediaScreen() {
                 ) : (
                   <View style={S.videoThumbnail}>
                     <Ionicons name="videocam" size={28} color="#fff" />
-                    <Text style={S.videoLabel}>Video</Text>
+                    <Text style={S.videoLabel}>{i18n.t('video') || 'Video'}</Text>
                   </View>
                 )}
               </TouchableOpacity>
 
               <View style={S.mediaInfo}>
-                <Text style={S.mediaType}>{media.resourceType === 'image' ? 'Image' : 'Video'}</Text>
+                <Text style={S.mediaType}>{media.resourceType === 'image' ? (i18n.t('image') || 'Image') : (i18n.t('video') || 'Video')}</Text>
                 {!!media.content && <Text style={S.mediaCaption} numberOfLines={2}>{media.content}</Text>}
                 <Text style={S.mediaDate}>
-                  {media.createdAt?.toDate ? media.createdAt.toDate().toLocaleDateString() : 'Unknown date'}
+                  {media.createdAt?.toDate ? media.createdAt.toDate().toLocaleDateString() : (i18n.t('unknownDate') || 'Unknown date')}
                 </Text>
               </View>
 
@@ -228,7 +232,7 @@ export default function AdminMyMediaScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity style={S.deleteButton} onPress={() => handleDelete(media)} disabled={deleting === media.id}>
                   {deleting === media.id ? (
-                    <ActivityIndicator size="small" color={C.red} />
+                    <FootballLoader size="small" color={C.red} />
                   ) : (
                     <Ionicons name="trash-outline" size={18} color={C.red} />
                   )}
@@ -242,10 +246,10 @@ export default function AdminMyMediaScreen() {
       <Modal visible={!!editingMedia} transparent animationType="slide" onRequestClose={() => setEditingMedia(null)}>
         <View style={S.modalOverlay}>
           <View style={S.modalContent}>
-            <Text style={S.modalTitle}>Edit Caption</Text>
+            <Text style={S.modalTitle}>{i18n.t('editCaption') || 'Edit caption'}</Text>
             <TextInput
               style={S.captionInput}
-              placeholder="Enter caption"
+              placeholder={i18n.t('captionPlaceholder') || 'Enter caption'}
               placeholderTextColor={C.muted}
               value={editCaption}
               onChangeText={setEditCaption}
@@ -260,10 +264,10 @@ export default function AdminMyMediaScreen() {
                   setEditCaption('');
                 }}
               >
-                <Text style={S.cancelButtonText}>Cancel</Text>
+                <Text style={S.cancelButtonText}>{i18n.t('cancel') || 'Cancel'}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[S.modalButton, S.saveButton]} onPress={handleSaveEdit} disabled={saving}>
-                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={S.saveButtonText}>Save</Text>}
+                {saving ? <FootballLoader size="small" color="#fff" /> : <Text style={S.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
               </TouchableOpacity>
             </View>
           </View>

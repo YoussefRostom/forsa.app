@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -18,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { collection, doc, getDoc, onSnapshot, query, getDocs, where, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { isAdmin } from '../../services/ModerationService';
+import FootballLoader from '../../components/FootballLoader';
 
 const resolveDisplayName = (user: any) => {
   const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
@@ -196,7 +196,7 @@ export default function AdminAllMediaScreen() {
   if (loading) {
     return (
       <View style={S.center}>
-        <ActivityIndicator size="large" color={C.blue} />
+        <FootballLoader size="large" color={C.blue} />
         <Text style={S.loadingText}>Loading platform media...</Text>
       </View>
     );
@@ -256,7 +256,7 @@ export default function AdminAllMediaScreen() {
                   <Ionicons name="eye-outline" size={19} color={C.subtext} />
                 </TouchableOpacity>
                 <TouchableOpacity style={S.deleteButton} onPress={() => handleDeleteMedia(media.id)} disabled={deletingId === media.id}>
-                  {deletingId === media.id ? <ActivityIndicator size="small" color={C.red} /> : <Ionicons name="trash-outline" size={19} color={C.red} />}
+                  {deletingId === media.id ? <FootballLoader size="small" color={C.red} /> : <Ionicons name="trash-outline" size={19} color={C.red} />}
                 </TouchableOpacity>
               </View>
             </View>

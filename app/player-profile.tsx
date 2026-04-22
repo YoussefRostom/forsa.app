@@ -2,16 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { ActivityIndicator, Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import SimpleSelect from '../components/SimpleSelect';
 import i18n from '../locales/i18n';
+import { buildPersonDisplayName } from '../lib/userDisplayName';
 import { isExpectedNetworkError } from '../lib/networkErrors';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { uploadMedia } from '../services/MediaService';
+import FootballLoader from '../components/FootballLoader';
 
 const POSITIONS = ['GK', 'LB', 'CB', 'RB', 'CDM', 'CM', 'CAM', 'RW', 'LW', 'ST'];
 
@@ -252,9 +254,11 @@ export default function PlayerProfileScreen() {
         }
       }
 
+      const username = buildPersonDisplayName(firstName, lastName);
       const updateData = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
+        username,
         email: resolvedEmail,
         phone: resolvedPhone,
         city: city.trim(),
@@ -290,7 +294,7 @@ export default function PlayerProfileScreen() {
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' }}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -607,7 +611,7 @@ export default function PlayerProfileScreen() {
                 activeOpacity={0.8}
               >
                 {uploading ? (
-                  <ActivityIndicator color="#fff" />
+                  <FootballLoader color="#fff" />
                 ) : (
                   <Text style={styles.saveButtonText}>{i18n.t('saveChanges') || 'Save Changes'}</Text>
                 )}

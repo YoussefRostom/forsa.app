@@ -15,6 +15,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { resolveUserDisplayName as resolveCanonicalDisplayName } from '../lib/userDisplayName';
 import { isTransientNotificationDispatchError } from './NotificationService';
 import { sendPushNotificationsToUsers } from './PushNotificationService';
 
@@ -81,7 +82,7 @@ async function getUserPreview(userId?: string): Promise<{ name: string; photo?: 
 
     const userData = userSnap.data();
     const profile = {
-      name: resolveUserDisplayName(userData),
+      name: resolveCanonicalDisplayName(userData),
       photo: userData?.profilePhoto || userData?.photoURL || userData?.profileImage || userData?.image || userData?.photo || undefined,
       role: String(userData?.role || '').trim() || undefined,
     };
@@ -103,14 +104,9 @@ function getConversationId(userId1: string, userId2: string): string {
   return `${sorted[0]}_${sorted[1]}`;
 }
 
-function resolveUserDisplayName(userData: any): string {
-  return userData.firstName && userData.lastName
-    ? `${userData.firstName} ${userData.lastName}`
-    : userData.firstName || userData.lastName || userData.email || userData.phone || 'Unknown';
-}
-
 function resolveAuthDisplayName(currentUser: typeof auth.currentUser): string {
-  return currentUser?.displayName?.trim() || currentUser?.email?.split('@')[0] || 'Unknown';
+  const authDisplayName = currentUser?.displayName?.trim();
+  return authDisplayName || 'You';
 }
 
 function getImmediateCurrentUserChatProfile() {
@@ -149,7 +145,7 @@ async function getCurrentUserChatProfile() {
     const currentUserSnap = await getDoc(doc(db, 'users', currentUser.uid));
     const userData = currentUserSnap.exists() ? currentUserSnap.data() : null;
     const profile = {
-      name: userData ? resolveUserDisplayName(userData) : resolveAuthDisplayName(currentUser),
+      name: userData ? resolveCanonicalDisplayName(userData) : resolveAuthDisplayName(currentUser),
       photo: userData?.profilePhoto || currentUser.photoURL || null,
       role: String(userData?.role || '').trim() || null,
     };
@@ -802,7 +798,9 @@ export async function getMessages(
     messages.reverse();
 
     messages.forEach((msg) => {
-      msg.senderName = msg.senderName || (msg.senderId === currentUserId ? auth.currentUser?.displayName || auth.currentUser?.email || 'You' : 'Unknown');
+      if (!msg.senderName) {
+        msg.senderName = msg.senderId === currentUserId ? getImmediateCurrentUserChatProfile().name : 'Unknown';
+      }
       msg.senderPhoto = msg.senderPhoto || undefined;
     });
 
@@ -862,7 +860,7 @@ export function subscribeToMessages(
 
       messages.forEach((msg) => {
         if (!msg.senderName && msg.senderId === currentUserId) {
-          msg.senderName = auth.currentUser?.displayName || auth.currentUser?.email || 'You';
+          msg.senderName = getImmediateCurrentUserChatProfile().name;
         }
       });
 

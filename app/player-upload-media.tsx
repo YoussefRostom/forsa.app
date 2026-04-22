@@ -2,9 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { collection, getDocs } from 'firebase/firestore';
+import FootballLoader from '../components/FootballLoader';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { auth, db } from '../lib/firebase';
@@ -664,7 +665,7 @@ export default function PlayerUploadMediaScreen() {
 
                       {(uploadProgress[idx] ?? 0) > 0 && (uploadProgress[idx] ?? 0) < 100 && (
                         <View style={styles.uploadingOverlay}>
-                          <ActivityIndicator size="small" color="#fff" />
+                          <FootballLoader size="small" color="#fff" />
                           <Text style={styles.uploadingOverlayText}>{Math.round(uploadProgress[idx] ?? 0)}%</Text>
                           <Text style={styles.uploadingOverlaySubtext}>{i18n.t('uploading') || 'Uploading...'}</Text>
                         </View>
@@ -802,7 +803,7 @@ export default function PlayerUploadMediaScreen() {
               >
                 {uploading ? (
                   <View style={styles.uploadingContainer}>
-                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+                    <FootballLoader size="small" color="#fff" style={{ marginRight: 8 }} />
                     <Text style={styles.submitBtnText}>{i18n.t('uploading') || 'Uploading...'}</Text>
                   </View>
                 ) : (

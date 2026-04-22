@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { subscribeMyNotifications, listMyNotifications, markAsRead, markAllNotificationsAsRead, Notification, NotificationType } from '../../services/NotificationService';
 import { formatTimestamp } from '../../lib/dateUtils';
+import FootballLoader from '../../components/FootballLoader';
 
 const C = {
   bg: '#f0f4f8', card: '#ffffff', border: '#e2e8f0',
@@ -144,7 +145,7 @@ export default function AdminNotificationsScreen() {
         {unreadCount > 0 && (
           <TouchableOpacity style={S.markAllBtn} onPress={handleMarkAllRead} disabled={markingAll}>
             {markingAll
-              ? <ActivityIndicator size="small" color="#fff" />
+              ? <FootballLoader size="small" color="#fff" />
               : <Text style={S.markAllText}>Mark all read</Text>
             }
           </TouchableOpacity>
@@ -153,7 +154,7 @@ export default function AdminNotificationsScreen() {
 
       {loading ? (
         <View style={S.center}>
-          <ActivityIndicator size="large" color={C.blue} />
+          <FootballLoader size="large" color={C.blue} />
           <Text style={S.loadingText}>Loading notifications...</Text>
         </View>
       ) : list.length === 0 ? (

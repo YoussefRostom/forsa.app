@@ -3,8 +3,9 @@ import { ResizeMode, Video } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 
 const getPositionLabel = (pos: string) => i18n.locale === 'ar' && i18n.t(`positions.${pos}`) ? i18n.t(`positions.${pos}`) : pos;
 const getCityLabel = (cityKey: string) => cityKey ? (i18n.t(`cities.${cityKey}`) || cityKey) : '';
@@ -70,7 +71,7 @@ export default function AgentPlayerProfileScreen() {
     fetchPlayer();
   }, [id]);
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#007aff" /></View>;
+  if (loading) return <View style={styles.center}><FootballLoader size="large" color="#007aff" /></View>;
   if (!player) return <View style={styles.center}><Text>{i18n.t('playerNotFound') || 'Player not found'}</Text></View>;
 
   return (

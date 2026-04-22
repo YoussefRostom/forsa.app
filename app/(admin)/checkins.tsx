@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { subscribeAdminCheckIns, CheckIn, CheckInFilters } from '../../services/CheckInService';
 import { isAdmin } from '../../services/ModerationService';
 import { formatTimestamp } from '../../lib/dateUtils';
+import FootballLoader from '../../components/FootballLoader';
 
 const C = {
   bg: '#f0f4f8', card: '#ffffff', border: '#e2e8f0',
@@ -144,7 +145,7 @@ export default function AdminCheckInsScreen() {
     return (
       <View style={S.container}>
         <View style={S.center}>
-          <ActivityIndicator size="large" color={C.blue} />
+          <FootballLoader size="large" color={C.blue} />
           <Text style={S.loadingText}>Checking permissions...</Text>
         </View>
       </View>
@@ -181,7 +182,7 @@ export default function AdminCheckInsScreen() {
 
       {loading ? (
         <View style={S.center}>
-          <ActivityIndicator size="large" color={C.blue} />
+          <FootballLoader size="large" color={C.blue} />
           <Text style={S.loadingText}>Loading check-ins...</Text>
         </View>
       ) : checkIns.length === 0 ? (

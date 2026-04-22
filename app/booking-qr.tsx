@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
 import PureQRCode from '../components/PureQRCode';
 import { db } from '../lib/firebase';
 import { ensureCheckInCodeForCurrentUser } from '../services/CheckInCodeService';
+import FootballLoader from '../components/FootballLoader';
 
 const C = {
   bg: '#f0f4f8',
@@ -96,7 +97,7 @@ export default function BookingQrScreen() {
 
         {loading ? (
           <View style={S.loaderWrap}>
-            <ActivityIndicator size="large" color={C.blue} />
+            <FootballLoader size="large" color={C.blue} />
             <Text style={S.loaderText}>Preparing QR...</Text>
           </View>
         ) : !isBookingConfirmed ? (

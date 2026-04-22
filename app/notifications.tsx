@@ -7,7 +7,6 @@ import {
   FlatList,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   RefreshControl,
 } from 'react-native';
@@ -25,6 +24,7 @@ import {
 import { getOrCreateConversation } from '../services/MessagingService';
 import { getCurrentUserRole } from '../services/UserRoleService';
 import { formatTimestamp } from '../lib/dateUtils';
+import FootballLoader from '../components/FootballLoader';
 
 const typeToIcon: Record<NotificationType, string> = {
   booking: 'calendar',
@@ -226,7 +226,7 @@ export default function NotificationsScreen() {
       </View>
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <FootballLoader size="large" color="#007AFF" />
           <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
         </View>
       ) : list.length === 0 ? (

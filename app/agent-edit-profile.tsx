@@ -3,13 +3,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
+import { buildPersonDisplayName } from '../lib/userDisplayName';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { uploadMedia } from '../services/MediaService';
+import FootballLoader from '../components/FootballLoader';
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
 
@@ -212,6 +214,7 @@ export default function AgentEditProfileScreen() {
       const updateData: any = {
         phone: phone.trim(),
         updatedAt: new Date().toISOString(),
+        username: buildPersonDisplayName(firstName, lastName) || 'Agent',
       };
 
       // Only include optional fields if they have values
@@ -258,7 +261,7 @@ export default function AgentEditProfileScreen() {
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' }}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -464,7 +467,7 @@ export default function AgentEditProfileScreen() {
 
               <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
                 {saving ? (
-                  <ActivityIndicator color="#fff" />
+                  <FootballLoader color="#fff" />
                 ) : (
                   <>
                     <Ionicons name="checkmark-circle-outline" size={18} color="#fff" style={{ marginRight: 8 }} />

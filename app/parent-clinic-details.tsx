@@ -2,13 +2,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
 import { doc, getDoc } from 'firebase/firestore';
 import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
+import { addPendingBooking, completePendingBooking, failPendingBooking } from '../lib/pendingBookingStore';
+import FootballLoader from '../components/FootballLoader';
+
+function createMinimumBookingDate() {
+  const minimumDate = new Date();
+  minimumDate.setHours(minimumDate.getHours() + 2);
+  minimumDate.setSeconds(0, 0);
+  return minimumDate;
+}
 
 export default function ParentClinicDetailsScreen() {
   const params = useLocalSearchParams();
@@ -20,7 +30,8 @@ export default function ParentClinicDetailsScreen() {
   const [selectedDoctorIndex, setSelectedDoctorIndex] = useState(0);
   const [selectedBranchId, setSelectedBranchId] = useState('');
   const [bookingComments, setBookingComments] = useState('');
-  const [preferredTime, setPreferredTime] = useState<Date | null>(null);
+  const [minimumBookingDate] = useState(() => createMinimumBookingDate());
+  const [preferredTime, setPreferredTime] = useState<Date | null>(() => new Date(createMinimumBookingDate()));
   const [pendingPreferredDate, setPendingPreferredDate] = useState<Date | null>(null);
   const [selectedShift, setSelectedShift] = useState<'Day' | 'Night' | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -44,7 +55,7 @@ export default function ParentClinicDetailsScreen() {
     : null;
 
   const openDateTimePicker = () => {
-    setPendingPreferredDate(resolvedPreferredTime || new Date());
+    setPendingPreferredDate(resolvedPreferredTime || minimumBookingDate);
     setShowDatePicker(true);
   };
 
@@ -77,11 +88,12 @@ export default function ParentClinicDetailsScreen() {
   };
 
   const applySelectedTime = (date: Date) => {
-    const baseDate = pendingPreferredDate || resolvedPreferredTime || new Date();
+    const baseDate = pendingPreferredDate || resolvedPreferredTime || minimumBookingDate;
     const nextDate = new Date(baseDate);
     nextDate.setHours(date.getHours(), date.getMinutes(), 0, 0);
 
-    setPreferredTime(nextDate.getTime() > Date.UTC(2000, 0, 1) ? nextDate : null);
+    const resolvedDate = nextDate < minimumBookingDate ? new Date(minimumBookingDate) : nextDate;
+    setPreferredTime(resolvedDate.getTime() > Date.UTC(2000, 0, 1) ? resolvedDate : null);
     setPendingPreferredDate(null);
     setShowDatePicker(false);
     setShowTimePicker(false);
@@ -100,19 +112,19 @@ export default function ParentClinicDetailsScreen() {
     }
 
     if (date) {
-      const baseDate = pendingPreferredDate || resolvedPreferredTime || new Date();
+      const baseDate = pendingPreferredDate || resolvedPreferredTime || minimumBookingDate;
       const nextDate = new Date(baseDate);
       nextDate.setHours(date.getHours(), date.getMinutes(), 0, 0);
-      setPendingPreferredDate(nextDate);
+      setPendingPreferredDate(nextDate < minimumBookingDate ? new Date(minimumBookingDate) : nextDate);
     }
   };
 
   const confirmIosDate = () => {
-    handleDateSelected(pendingPreferredDate || resolvedPreferredTime || new Date());
+    handleDateSelected(pendingPreferredDate || resolvedPreferredTime || minimumBookingDate);
   };
 
   const confirmIosTime = () => {
-    applySelectedTime(pendingPreferredDate || resolvedPreferredTime || new Date());
+    applySelectedTime(pendingPreferredDate || resolvedPreferredTime || minimumBookingDate);
   };
 
   useEffect(() => {
@@ -222,7 +234,7 @@ export default function ParentClinicDetailsScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -380,53 +392,70 @@ export default function ParentClinicDetailsScreen() {
     const serviceName = selectedService ? selectedService.name : 'General';
     const servicePrice = selectedService ? Number(selectedService.fee) || 0 : 0;
 
+    let parentName = user.displayName || 'Parent';
     try {
-      setBookingLoading(true);
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        parentName = resolveUserDisplayName(userData, i18n.t('parent') || 'Parent');
+      }
+    } catch { }
 
-      let parentName = user.displayName || 'Parent';
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          parentName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || parentName;
-        }
-      } catch { }
+    const pendingId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    const bookingData = {
+      parentId: user.uid,
+      parentName: parentName,
+      customerName: parentName,
+      providerId: clinic.id,
+      type: 'clinic',
+      status: 'pending',
+      date: resolvedPreferredTime ? getLocalDateInput(resolvedPreferredTime) : getLocalDateInput(),
+      time: resolvedPreferredTime ? resolvedPreferredTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+      preferredTime: resolvedPreferredTime ? resolvedPreferredTime.toISOString() : null,
+      createdAt,
+      name: clinic.name,
+      city: selectedBranch?.city || clinic.city,
+      ...buildBookingBranchPayload(selectedBranch),
+      doctor: doctorName,
+      service: serviceName,
+      price: servicePrice,
+      shift: selectedShift,
+      comments: bookingComments.trim() || null,
+      clientRequestId: pendingId,
+    };
 
-      const bookingData = {
-        parentId: user.uid,
-        parentName: parentName,
-        customerName: parentName,
-        providerId: clinic.id,
-        type: 'clinic',
-        status: 'pending',
-        date: resolvedPreferredTime ? getLocalDateInput(resolvedPreferredTime) : getLocalDateInput(),
-        time: resolvedPreferredTime ? resolvedPreferredTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
-        preferredTime: resolvedPreferredTime ? resolvedPreferredTime.toISOString() : null,
-        createdAt: new Date().toISOString(),
-        name: clinic.name,
-        city: selectedBranch?.city || clinic.city,
-        ...buildBookingBranchPayload(selectedBranch),
-        doctor: doctorName,
-        service: serviceName,
-        price: servicePrice,
-        shift: selectedShift,
-        comments: bookingComments.trim() || null,
-      };
+    addPendingBooking({
+      id: pendingId,
+      viewerRole: 'parent',
+      type: 'clinic',
+      name: clinic.name,
+      providerName: clinic.name,
+      createdAt,
+      date: bookingData.date,
+      time: bookingData.time,
+      shift: bookingData.shift,
+      doctor: bookingData.doctor,
+      service: bookingData.service,
+      price: bookingData.price,
+      city: bookingData.city,
+      branchId: bookingData.branchId,
+      branchName: bookingData.branchName,
+      branchAddress: bookingData.branchAddress,
+    });
 
-      await createBookingWithTransaction(bookingData, user.uid, 'Parent clinic booking created');
+    router.push('/parent-bookings');
 
-      Alert.alert(
-        i18n.t('success') || 'Success',
-        `${i18n.t('reservationSuccess') || 'Reservation request sent!'}\n${i18n.t('doctor')}: ${doctorName}\n${i18n.t('service')}: ${serviceName}`,
-        [{ text: i18n.t('ok') || 'OK', onPress: () => router.push('/parent-bookings') }]
-      );
-    } catch (error) {
-      console.error('Error creating booking:', error);
-      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
-      Alert.alert(i18n.t('error'), message);
-    } finally {
-      setBookingLoading(false);
-    }
+    void createBookingWithTransaction(bookingData, user.uid, 'Parent clinic booking created')
+      .then(() => {
+        completePendingBooking(pendingId);
+      })
+      .catch((error) => {
+        console.error('Error creating booking:', error);
+        const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
+        failPendingBooking(pendingId, message);
+        Alert.alert(i18n.t('error') || 'Error', message);
+      });
   };
 
   const reviewService = clinic?.services?.[selectedServiceIndex] || null;
@@ -705,17 +734,17 @@ export default function ParentClinicDetailsScreen() {
               
               {showDatePicker && Platform.OS === 'android' && (
                 <DateTimePicker
-                  value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                  value={pendingPreferredDate || resolvedPreferredTime || minimumBookingDate}
                   mode="date"
                   display="default"
                   onChange={handleDatePickerChange}
-                  minimumDate={new Date()}
+                  minimumDate={minimumBookingDate}
                 />
               )}
 
               {showTimePicker && Platform.OS === 'android' && (
                 <DateTimePicker
-                  value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                  value={pendingPreferredDate || resolvedPreferredTime || minimumBookingDate}
                   mode="time"
                   display="default"
                   onChange={handleTimePickerChange}
@@ -740,11 +769,11 @@ export default function ParentClinicDetailsScreen() {
                         </TouchableOpacity>
                       </View>
                       <DateTimePicker
-                        value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                        value={pendingPreferredDate || resolvedPreferredTime || minimumBookingDate}
                         mode="date"
                         display="spinner"
                         onChange={handleDatePickerChange}
-                        minimumDate={new Date()}
+                        minimumDate={minimumBookingDate}
                         textColor="#000"
                       />
                     </View>
@@ -771,7 +800,7 @@ export default function ParentClinicDetailsScreen() {
                       </View>
                       <Text style={styles.pickerModalSelectedDate}>{pendingPreferredDateLabel}</Text>
                       <DateTimePicker
-                        value={pendingPreferredDate || resolvedPreferredTime || new Date()}
+                        value={pendingPreferredDate || resolvedPreferredTime || minimumBookingDate}
                         mode="time"
                         display="spinner"
                         onChange={handleTimePickerChange}
@@ -830,7 +859,7 @@ export default function ParentClinicDetailsScreen() {
                 activeOpacity={0.8}
               >
                 {bookingLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <FootballLoader size="small" color="#fff" />
                 ) : (
                   <Text style={styles.reserveButtonText}>{i18n.t('reserve') || 'Send Booking Request'}</Text>
                 )}

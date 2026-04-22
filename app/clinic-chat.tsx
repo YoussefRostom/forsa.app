@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useEffect, useRef } from 'react';
-import { FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
@@ -13,6 +13,7 @@ import {
   Message 
 } from '../services/MessagingService';
 import { auth } from '../lib/firebase';
+import FootballLoader from '../components/FootballLoader';
 
 export default function ClinicChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -150,7 +151,7 @@ export default function ClinicChatScreen() {
       <HamburgerMenu />
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color="#000" />
+          <FootballLoader size="large" color="#000" />
           <Text style={{ marginTop: 12, color: '#666' }}>{i18n.t('loading') || 'Loading messages...'}</Text>
         </View>
       ) : (

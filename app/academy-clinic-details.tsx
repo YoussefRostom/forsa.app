@@ -2,12 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { doc, getDoc } from 'firebase/firestore';
 import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
+import FootballLoader from '../components/FootballLoader';
 
 export default function AcademyClinicDetailsScreen() {
   const params = useLocalSearchParams();
@@ -121,7 +123,7 @@ export default function AcademyClinicDetailsScreen() {
   if (loading && !clinic) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -173,7 +175,7 @@ export default function AcademyClinicDetailsScreen() {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
-          academyName = userData.academyName || userData.name || academyName;
+          academyName = resolveUserDisplayName(userData, i18n.t('academy') || 'Academy');
         }
       } catch {
       }
@@ -423,7 +425,7 @@ export default function AcademyClinicDetailsScreen() {
                 activeOpacity={0.8}
               >
                 {bookingLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <FootballLoader size="small" color="#fff" />
                 ) : (
                   <Text style={styles.reserveButtonText}>{i18n.t('reserve') || 'Reserve'}</Text>
                 )}

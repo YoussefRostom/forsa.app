@@ -1,13 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
 import { db, auth } from '../lib/firebase';
 import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches, recordMatchesBranch } from '../lib/bookingBranch';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import i18n from '../locales/i18n';
 import { LinearGradient } from 'expo-linear-gradient';
+import { addPendingBooking, completePendingBooking, failPendingBooking } from '../lib/pendingBookingStore';
+import FootballLoader from '../components/FootballLoader';
 
 type Academy = {
   id: string;
@@ -262,7 +265,7 @@ export default function ParentAcademyDetailsScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
+        <FootballLoader size="large" color="#000" />
         <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
       </View>
     );
@@ -314,54 +317,71 @@ export default function ParentAcademyDetailsScreen() {
 
     const price = academy?.fees[selectedAge] || 0;
 
+    // Fetch user name from Firestore
+    let customerName = user.displayName || (i18n.t('parent') || 'Parent');
     try {
-      setBookingLoading(true);
-
-      // Fetch user name from Firestore
-      let customerName = user.displayName || (i18n.t('parent') || 'Parent');
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          customerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || customerName;
-        }
-      } catch {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        customerName = resolveUserDisplayName(userData, i18n.t('parent') || 'Parent');
       }
-
-      const slot = academy.schedule?.[selectedAge];
-      const bookingData = {
-        parentId: user.uid,
-        customerName,
-        providerId: academy.id,
-        providerName: academy.name,
-        type: 'academy',
-        status: 'pending',
-        date: getLocalDateInput(),
-        createdAt: new Date().toISOString(),
-        name: academy.name,
-        city: selectedBranch?.city || academy.city,
-        ...buildBookingBranchPayload(selectedBranch),
-        ageGroup: selectedAge,
-        program: `${selectedAge} years`,
-        price: Number(price),
-        day: slot?.day || null,
-        time: slot?.time || null,
-      };
-
-      await createBookingWithTransaction(bookingData, user.uid, 'Parent academy booking created');
-
-      Alert.alert(
-        i18n.t('reservation') || 'Reservation',
-        `${i18n.t('reservationSuccess') || 'Reservation request sent!'}\n${i18n.t('ageGroup') || 'Age Group'}: ${selectedAge} ${i18n.t('years') || 'years'}\n${i18n.t('price') || 'Price'}: ${price} EGP`,
-        [{ text: i18n.t('ok') || 'OK', onPress: () => router.push('/parent-bookings') }]
-      );
-    } catch (error) {
-      console.error('Error creating academy booking:', error);
-      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
-      Alert.alert(i18n.t('error'), message);
-    } finally {
-      setBookingLoading(false);
+    } catch {
     }
+
+    const pendingId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    const slot = academy.schedule?.[selectedAge];
+    const bookingData = {
+      parentId: user.uid,
+      parentName: customerName,
+      customerName,
+      providerId: academy.id,
+      providerName: academy.name,
+      type: 'academy',
+      status: 'pending',
+      date: getLocalDateInput(),
+      createdAt,
+      name: academy.name,
+      city: selectedBranch?.city || academy.city,
+      ...buildBookingBranchPayload(selectedBranch),
+      ageGroup: selectedAge,
+      program: `${selectedAge} years`,
+      price: Number(price),
+      day: slot?.day || null,
+      time: slot?.time || null,
+      clientRequestId: pendingId,
+    };
+
+    addPendingBooking({
+      id: pendingId,
+      viewerRole: 'parent',
+      type: 'academy',
+      name: academy.name,
+      providerName: academy.name,
+      createdAt,
+      date: bookingData.date,
+      time: bookingData.time,
+      ageGroup: bookingData.ageGroup,
+      program: bookingData.program,
+      price: bookingData.price,
+      city: bookingData.city,
+      branchId: bookingData.branchId,
+      branchName: bookingData.branchName,
+      branchAddress: bookingData.branchAddress,
+    });
+
+    router.push('/parent-bookings');
+
+    void createBookingWithTransaction(bookingData, user.uid, 'Parent academy booking created')
+      .then(() => {
+        completePendingBooking(pendingId);
+      })
+      .catch((error) => {
+        console.error('Error creating academy booking:', error);
+        const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to create booking');
+        failPendingBooking(pendingId, message);
+        Alert.alert(i18n.t('error') || 'Error', message);
+      });
   };
 
   const handleBookPrivateTraining = async (program: any) => {
@@ -376,54 +396,69 @@ export default function ParentAcademyDetailsScreen() {
       return;
     }
 
+    // Fetch user name from Firestore
+    let customerName = user.displayName || (i18n.t('parent') || 'Parent');
     try {
-      setPrivateBookingLoadingId(program.id);
-
-      // Fetch user name from Firestore
-      let customerName = user.displayName || (i18n.t('parent') || 'Parent');
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          customerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || customerName;
-        }
-      } catch {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        customerName = resolveUserDisplayName(userData, i18n.t('parent') || 'Parent');
       }
-
-      const bookingData = {
-        parentId: user.uid,
-        customerName,
-        providerId: academy!.id,
-        providerName: academy!.name,
-        type: 'academy',
-        programId: program.id,
-        status: 'pending',
-        date: getLocalDateInput(),
-        createdAt: new Date().toISOString(),
-        name: academy!.name,
-        city: selectedBranch?.city || academy!.city,
-        ...buildBookingBranchPayload(selectedBranch),
-        program: program.name,
-        coachName: program.coachName,
-        sessionType: 'private',
-        price: Number(program.fee),
-        duration: program.duration,
-      };
-
-      await createBookingWithTransaction(bookingData, user.uid, 'Parent private training booking created');
-
-      Alert.alert(
-        i18n.t('bookingRequestSent') || 'Booking Request Sent',
-        i18n.t('privateTrainingBookingDesc') || 'Your private training booking request has been sent. You will be notified once the academy responds.',
-        [{ text: 'OK', onPress: () => router.push('/parent-bookings') }]
-      );
-    } catch (error) {
-      console.error('Private training booking error:', error);
-      const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to send booking request. Please try again.');
-      Alert.alert(i18n.t('error'), message);
-    } finally {
-      setPrivateBookingLoadingId(null);
+    } catch {
     }
+
+    const pendingId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const createdAt = new Date().toISOString();
+    const bookingData = {
+      parentId: user.uid,
+      parentName: customerName,
+      customerName,
+      providerId: academy!.id,
+      providerName: academy!.name,
+      type: 'academy',
+      programId: program.id,
+      status: 'pending',
+      date: getLocalDateInput(),
+      createdAt,
+      name: academy!.name,
+      city: selectedBranch?.city || academy!.city,
+      ...buildBookingBranchPayload(selectedBranch),
+      program: program.name,
+      coachName: program.coachName,
+      sessionType: 'private',
+      price: Number(program.fee),
+      duration: program.duration,
+      clientRequestId: pendingId,
+    };
+
+    addPendingBooking({
+      id: pendingId,
+      viewerRole: 'parent',
+      type: 'academy',
+      name: academy!.name,
+      providerName: academy!.name,
+      createdAt,
+      date: bookingData.date,
+      program: bookingData.program,
+      price: bookingData.price,
+      city: bookingData.city,
+      branchId: bookingData.branchId,
+      branchName: bookingData.branchName,
+      branchAddress: bookingData.branchAddress,
+    });
+
+    router.push('/parent-bookings');
+
+    void createBookingWithTransaction(bookingData, user.uid, 'Parent private training booking created')
+      .then(() => {
+        completePendingBooking(pendingId);
+      })
+      .catch((error) => {
+        console.error('Private training booking error:', error);
+        const message = error instanceof Error ? error.message : (i18n.t('bookingFailed') || 'Failed to send booking request. Please try again.');
+        failPendingBooking(pendingId, message);
+        Alert.alert(i18n.t('error') || 'Error', message);
+      });
   };
 
   return (
@@ -704,7 +739,7 @@ export default function ParentAcademyDetailsScreen() {
                         disabled={bookingLoading || privateBookingLoadingId === program.id}
                       >
                         {privateBookingLoadingId === program.id ? (
-                          <ActivityIndicator color="#fff" />
+                          <FootballLoader color="#fff" />
                         ) : (
                           <Text style={styles.bookProgramButtonText}>{i18n.t('bookNow') || 'Book Now'}</Text>
                         )}
@@ -789,7 +824,7 @@ export default function ParentAcademyDetailsScreen() {
                     disabled={!selectedAge || bookingLoading}
                   >
                     {bookingLoading ? (
-                      <ActivityIndicator color="#fff" />
+                      <FootballLoader color="#fff" />
                     ) : (
                       <Text style={styles.reserveButtonText}>
                         {selectedAge

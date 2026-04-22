@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { writeEmailIndex } from '../lib/emailIndex';
 import { writePhoneIndex } from '../lib/phoneIndex';
@@ -21,7 +22,6 @@ import {
 } from '../lib/validations';
 import React, { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -38,6 +38,7 @@ import {
 } from 'react-native';
 import { uploadMedia } from '../services/MediaService';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 // import OtpModal from '../components/OtpModal'; // Removed
 
 function isValidTimeFormat(time: string): boolean {
@@ -911,6 +912,7 @@ const SignupClinic = () => {
         role: 'clinic',
         status: 'active',
         isSuspended: false,
+        username: resolveUserDisplayName({ clinicName }, 'Clinic'),
         email: email && email.trim().length > 0 ? email.trim() : null,
         phone,
         clinicName,
@@ -1460,7 +1462,7 @@ const SignupClinic = () => {
                     activeOpacity={0.85}
                   >
                     {locationAutofillLoading ? (
-                      <ActivityIndicator size="small" color="#000" />
+                      <FootballLoader size="small" color="#000" />
                     ) : (
                       <Ionicons name="locate-outline" size={18} color="#000" />
                     )}
@@ -1994,7 +1996,7 @@ const SignupClinic = () => {
                 >
                   <View style={styles.signupButtonContent}>
                     {loading ? (
-                      <ActivityIndicator color="#fff" />
+                      <FootballLoader color="#fff" />
                     ) : (
                       <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                     )}

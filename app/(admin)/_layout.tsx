@@ -1,7 +1,8 @@
 import { Stack, Redirect } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
-import { View, ActivityIndicator } from 'react-native';
+import { View } from 'react-native';
 import i18n from '../../locales/i18n';
+import FootballLoader from '../../components/FootballLoader';
 
 export default function AdminLayout() {
     const { user, isLoading } = useAuth();
@@ -9,7 +10,7 @@ export default function AdminLayout() {
     if (isLoading) {
         return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                <ActivityIndicator size="large" color="#0000ff" />
+                <FootballLoader size="large" color="#0000ff" />
             </View>
         );
     }

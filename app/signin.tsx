@@ -5,7 +5,6 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import React, { useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -25,6 +24,7 @@ import { lookupPhoneIndex } from "../lib/phoneIndex";
 import { isExpectedNetworkError } from "../lib/networkErrors";
 import i18n from "../locales/i18n";
 import { useAuth } from "../context/AuthContext";
+import FootballLoader from '../components/FootballLoader';
 
 type Errors = {
   email?: string;
@@ -401,7 +401,7 @@ const SignInScreen = () => {
                 activeOpacity={0.8}
               >
                 {loading ? (
-                  <ActivityIndicator color="#fff" />
+                  <FootballLoader color="#fff" />
                 ) : (
                   <Text style={styles.signInButtonText}>{i18n.t("sign_in")}</Text>
                 )}

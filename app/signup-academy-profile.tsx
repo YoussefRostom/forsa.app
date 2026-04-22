@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { doc, setDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { writeEmailIndex } from '../lib/emailIndex';
 import { writePhoneIndex } from '../lib/phoneIndex';
@@ -20,7 +21,6 @@ import { normalizePhoneForAuth ,
 } from '../lib/validations';
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -41,6 +41,7 @@ import { uploadMedia } from '../services/MediaService';
 
 import i18n from '../locales/i18n';
 import { buildBookingBranchPayload, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
+import FootballLoader from '../components/FootballLoader';
 
 const LOCATION_PICKER_RESULT_KEY = 'academySignupLocationPickerResult';
 const EXTRA_LOCATION_PICKER_RESULT_KEY = 'academySignupExtraLocationPickerResult';
@@ -931,6 +932,7 @@ const SignupAcademy = () => {
         role: 'academy',
         status: 'active',
         isSuspended: false,
+        username: resolveUserDisplayName({ academyName }, 'Academy'),
         email: email && email.trim().length > 0 ? email.trim() : null,
         phone,
         academyName,
@@ -1468,7 +1470,7 @@ const SignupAcademy = () => {
                     activeOpacity={0.85}
                   >
                     {locationAutofillLoading ? (
-                      <ActivityIndicator size="small" color="#000" />
+                      <FootballLoader size="small" color="#000" />
                     ) : (
                       <Ionicons name="locate-outline" size={18} color="#000" />
                     )}
@@ -2019,7 +2021,7 @@ const SignupAcademy = () => {
                 >
                   <View style={styles.signupButtonContent}>
                     {loading ? (
-                      <ActivityIndicator color="#fff" />
+                      <FootballLoader color="#fff" />
                     ) : (
                       <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                     )}

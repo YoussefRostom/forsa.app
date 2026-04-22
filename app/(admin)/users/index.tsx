@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
+import FootballLoader from '../../../components/FootballLoader';
 
 const C = {
     bg: '#f0f4f8', card: '#ffffff', border: '#e2e8f0',
@@ -36,6 +37,8 @@ const resolveDisplayName = (user: any) => {
     const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
 
     return (
+        user?.username ||
+        user?.displayName ||
         user?.name ||
         user?.academyName ||
         user?.clinicName ||
@@ -169,7 +172,7 @@ export default function UsersList() {
     if (loading) {
         return (
             <View style={S.center}>
-                <ActivityIndicator size="large" color={C.blue} />
+                <FootballLoader size="large" color={C.blue} />
                 <Text style={S.loadingText}>Loading users...</Text>
             </View>
         );

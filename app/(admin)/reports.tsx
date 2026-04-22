@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Image,
   Alert,
-  ActivityIndicator,
   Modal,
   TextInput,
   ScrollView,
@@ -21,6 +20,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { Timestamp, doc, getDoc } from 'firebase/firestore';
 import { formatTimestamp } from '../../lib/dateUtils';
 import i18n from '../../locales/i18n';
+import FootballLoader from '../../components/FootballLoader';
 
 export default function AdminReportsScreen() {
   const router = useRouter();
@@ -308,7 +308,7 @@ export default function AdminReportsScreen() {
   if (!isUserAdmin) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <FootballLoader size="large" color="#007AFF" />
         <Text style={styles.loadingText}>{i18n.t('checkingPermissions')}</Text>
       </View>
     );
@@ -379,7 +379,7 @@ export default function AdminReportsScreen() {
       {/* Reports List */}
       {loading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <FootballLoader size="large" color="#007AFF" />
           <Text style={styles.loadingText}>{i18n.t('loadingReports')}</Text>
         </View>
       ) : reports.length === 0 ? (
@@ -492,7 +492,7 @@ export default function AdminReportsScreen() {
 
               {performingAction && (
                 <View style={styles.loadingOverlay}>
-                  <ActivityIndicator size="large" color="#007AFF" />
+                  <FootballLoader size="large" color="#007AFF" />
                 </View>
               )}
             </ScrollView>

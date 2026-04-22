@@ -2,12 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+import { Alert, Animated, Easing, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, KeyboardAvoidingView } from 'react-native';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { buildBookingBranchPayload, getBranchAddressLine, getBranchSummary, normalizeBookingBranches, resolveRecordBranch } from '../lib/bookingBranch';
 import { doc, getDoc } from 'firebase/firestore';
 import { createBookingWithTransaction, getLocalDateInput } from '../services/MonetizationService';
+import FootballLoader from '../components/FootballLoader';
 
 export default function ParentPrivateTrainingDetailsScreen() {
   const params = useLocalSearchParams();
@@ -68,7 +70,7 @@ export default function ParentPrivateTrainingDetailsScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -107,12 +109,12 @@ export default function ParentPrivateTrainingDetailsScreen() {
       setSendingPrivateBooking(true);
 
       // Fetch user name from Firestore
-      let playerName = user.displayName || 'Parent';
+      let parentName = user.displayName || (i18n.t('parent') || 'Parent');
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
           const userData = userDoc.data();
-          playerName = userData.name || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() || playerName;
+          parentName = resolveUserDisplayName(userData, i18n.t('parent') || 'Parent');
         }
       } catch {}
 
@@ -120,8 +122,9 @@ export default function ParentPrivateTrainingDetailsScreen() {
 
       const bookingData = {
         parentId: user.uid,
-        playerName: playerName,
-        customerName: playerName,
+        parentName,
+        playerName: parentName,
+        customerName: parentName,
         providerId: academy.id,
         providerName: providerName,
         type: 'academy',
@@ -298,7 +301,7 @@ export default function ParentPrivateTrainingDetailsScreen() {
               disabled={sendingPrivateBooking}
             >
               {sendingPrivateBooking ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <FootballLoader size="small" color="#fff" />
               ) : (
                 <>
                   <Ionicons name="calendar-outline" size={20} color="#fff" style={styles.reserveIcon} />

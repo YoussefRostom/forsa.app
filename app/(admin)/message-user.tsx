@@ -4,7 +4,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    ActivityIndicator,
     TextInput,
     FlatList,
 } from 'react-native';
@@ -12,6 +11,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
+import FootballLoader from '../../components/FootballLoader';
 
 const C = {
     bg: '#f0f4f8',
@@ -50,6 +50,8 @@ type UserItem = {
     role?: string;
     email?: string;
     phone?: string;
+    username?: string;
+    displayName?: string;
     name?: string;
     academyName?: string;
     clinicName?: string;
@@ -70,6 +72,8 @@ const resolveDisplayName = (user: UserItem) => {
     const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
 
     return (
+        user.username ||
+        user.displayName ||
         user.name ||
         user.academyName ||
         user.clinicName ||
@@ -312,7 +316,7 @@ export default function AdminMessageUserScreen() {
 
             {loading ? (
                 <View style={S.centerState}>
-                    <ActivityIndicator size="large" color={C.blue} />
+                    <FootballLoader size="large" color={C.blue} />
                     <Text style={S.stateText}>Loading users...</Text>
                 </View>
             ) : (

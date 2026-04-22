@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useRef, useState, useEffect } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator , Image } from 'react-native';
+import { Alert, Animated, Easing, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Image } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { isExpectedNetworkError } from '../lib/networkErrors';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { uploadMedia } from '../services/MediaService';
 import * as ImagePicker from 'expo-image-picker';
+import FootballLoader from '../components/FootballLoader';
 
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
@@ -135,7 +137,8 @@ export default function ParentEditProfileScreen() {
       }
       const updateData: any = {
         phone: phone.trim(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        username: resolveUserDisplayName({ parentName: name }, 'Parent'),
       };
 
       // Only include optional fields if they have values
@@ -160,7 +163,7 @@ export default function ParentEditProfileScreen() {
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a1a' }}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -320,7 +323,7 @@ export default function ParentEditProfileScreen() {
 
             <TouchableOpacity style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
               {saving ? (
-                <ActivityIndicator color="#fff" />
+                <FootballLoader color="#fff" />
               ) : (
                 <Text style={styles.saveBtnText}>{i18n.t('save')}</Text>
               )}

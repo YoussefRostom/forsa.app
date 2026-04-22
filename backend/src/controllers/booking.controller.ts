@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { db } from '../config/firebase';
 import { sendSuccess, sendError } from '../utils/response.util';
 import { createNotificationsForUsers, getAdminUserIds } from '../utils/notification.util';
+import { resolveUserDisplayName as getUserDisplayName } from '../utils/displayName.util';
 import { z } from 'zod';
 import { BookingStatus, BookingType, UserRole } from '../types';
 import {
@@ -65,25 +66,6 @@ function roundMoney(value: number): number {
 function asNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function getUserDisplayName(data: any): string | null {
-  const candidates = [
-    data?.name,
-    data?.playerName,
-    data?.parentName,
-    data?.academyName,
-    data?.clinicName,
-    [data?.firstName, data?.lastName].filter(Boolean).join(' ').trim(),
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-
-  return null;
 }
 
 function normalizeBookingDateInput(value: string): string | null {

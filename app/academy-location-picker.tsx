@@ -4,9 +4,10 @@ import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 
 type PickerParams = {
   storageKey?: string;
@@ -251,7 +252,7 @@ export default function AcademyLocationPickerScreen() {
               activeOpacity={0.85}
             >
               {locating ? (
-                <ActivityIndicator size="small" color="#000" />
+                <FootballLoader size="small" color="#000" />
               ) : (
                 <Ionicons name="locate-outline" size={18} color="#000" />
               )}
@@ -296,7 +297,7 @@ export default function AcademyLocationPickerScreen() {
             activeOpacity={0.85}
           >
             {confirming ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <FootballLoader size="small" color="#fff" />
             ) : (
               <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
             )}

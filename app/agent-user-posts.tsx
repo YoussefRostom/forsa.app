@@ -3,13 +3,14 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import React, { useRef, useState, useEffect } from 'react';
-import { ActivityIndicator, Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Easing, FlatList, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import HamburgerMenu from '../components/HamburgerMenu';
 import PostActionsMenu from '../components/PostActionsMenu';
 import i18n from '../locales/i18n';
 import { db, auth } from '../lib/firebase';
 import { fetchUserProfileByRole } from '../services/AgentDataService';
+import FootballLoader from '../components/FootballLoader';
 
 function getAge(dob?: string): number | null {
   if (!dob) return null;
@@ -168,7 +169,7 @@ export default function AgentUserPostsScreen() {
 
           {(loading || loadingProfile) ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color="#fff" />
+              <FootballLoader size="large" color="#fff" />
               <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
             </View>
           ) : (

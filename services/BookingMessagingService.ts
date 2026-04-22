@@ -1,5 +1,6 @@
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { resolveUserDisplayName as resolveCanonicalDisplayName } from '../lib/userDisplayName';
 import { getOrCreateConversation } from './MessagingService';
 import { getCurrentUserRole } from './UserRoleService';
 
@@ -35,15 +36,14 @@ function getDisplayName(userData: any, roleHint?: string): string {
   const role = String(userData?.role || roleHint || '').toLowerCase();
 
   if (role === 'academy') {
-    return userData?.academyName || userData?.name || userData?.firstName || 'Academy';
+    return resolveCanonicalDisplayName(userData, 'Academy');
   }
 
   if (role === 'clinic') {
-    return userData?.clinicName || userData?.name || userData?.firstName || 'Clinic';
+    return resolveCanonicalDisplayName(userData, 'Clinic');
   }
 
-  const fullName = [userData?.firstName, userData?.lastName].filter(Boolean).join(' ').trim();
-  return fullName || userData?.parentName || userData?.agentName || userData?.name || 'Unknown';
+  return resolveCanonicalDisplayName(userData, 'Unknown');
 }
 
 async function getUserProfileWithFallback(
@@ -94,9 +94,7 @@ async function getAgentSupportUsers(): Promise<Array<{ userId: string; name: str
         const agentData = docSnap.data();
         return {
           userId: docSnap.id,
-          name: agentData.firstName && agentData.lastName
-            ? `${agentData.firstName} ${agentData.lastName} (Customer Support)`
-            : agentData.firstName || agentData.lastName || agentData.name || 'Customer Support',
+          name: `${resolveCanonicalDisplayName(agentData, 'Customer Support')} (Customer Support)`,
           photo: agentData.profilePhoto,
           role: 'agent',
           lastBookingDate: agentData.createdAt,
@@ -113,9 +111,7 @@ async function getAgentSupportUsers(): Promise<Array<{ userId: string; name: str
       const agentData = docSnap.data();
       return {
         userId: docSnap.id,
-        name: agentData.firstName && agentData.lastName
-          ? `${agentData.firstName} ${agentData.lastName} (Customer Support)`
-          : agentData.firstName || agentData.lastName || agentData.name || 'Customer Support',
+        name: `${resolveCanonicalDisplayName(agentData, 'Customer Support')} (Customer Support)`,
         photo: agentData.profilePhoto,
         role: 'agent',
         lastBookingDate: agentData.createdAt,

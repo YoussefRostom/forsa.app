@@ -2,11 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 
 const cityLabels = i18n.t('cities', { returnObjects: true }) as Record<string, string>;
 
@@ -78,7 +79,7 @@ export default function AgentDetailsScreen() {
   if (loading) {
     return (
       <LinearGradient colors={['#000', '#1a1a1a', '#2d2d2d']} style={styles.centered}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </LinearGradient>
     );
   }
@@ -138,7 +139,7 @@ export default function AgentDetailsScreen() {
             activeOpacity={0.85}
           >
             {messaging ? (
-              <ActivityIndicator size="small" color="#000" />
+              <FootballLoader size="small" color="#000" />
             ) : (
               <>
                 <Ionicons name="chatbubble-ellipses" size={20} color="#000" style={{ marginRight: 8 }} />

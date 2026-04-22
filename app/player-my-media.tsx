@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
-import { Alert, ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { updateMediaCaption, deleteAdminMedia, type MediaDoc } from '../services/MediaService';
@@ -167,7 +168,7 @@ export default function PlayerMyMediaScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
         <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
       </View>
     );
@@ -306,7 +307,7 @@ export default function PlayerMyMediaScreen() {
                         disabled={deleting === media.id}
                       >
                         {deleting === media.id ? (
-                          <ActivityIndicator size="small" color="#e74a3b" />
+                          <FootballLoader size="small" color="#e74a3b" />
                         ) : (
                           <>
                             <Ionicons name="trash-outline" size={16} color="#e74a3b" />
@@ -356,7 +357,7 @@ export default function PlayerMyMediaScreen() {
                   onPress={handleSaveEdit}
                   disabled={saving || unchangedCaption}
                 >
-                  {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('saveCaptionChanges') || (i18n.t('save') || 'Save')}</Text>}
+                  {saving ? <FootballLoader size="small" color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('saveCaptionChanges') || (i18n.t('save') || 'Save')}</Text>}
                 </TouchableOpacity>
               </View>
             </View>

@@ -15,6 +15,18 @@ export function getBookingStatusMeta(status: string | undefined, i18n?: I18nLike
   const normalized = String(status || 'pending').toLowerCase();
 
   switch (normalized) {
+    case 'processing':
+      return {
+        label: translate(i18n, 'bookingProcessing', 'Processing'),
+        color: '#3b82f6',
+        note: translate(i18n, 'bookingProcessingNote', 'Your booking request is being sent right now.'),
+      };
+    case 'failed':
+      return {
+        label: translate(i18n, 'bookingRequestFailed', 'Request Failed'),
+        color: '#ef4444',
+        note: translate(i18n, 'bookingRequestFailedNote', 'We could not send this request. Please try again.'),
+      };
     case 'confirmed':
       return {
         label: translate(i18n, 'confirmed', 'Confirmed'),

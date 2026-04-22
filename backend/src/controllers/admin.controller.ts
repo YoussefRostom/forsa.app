@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { db } from '../config/firebase';
 import { sendSuccess, sendError } from '../utils/response.util';
 import { createNotificationForUser } from '../utils/notification.util';
+import { resolveUserDisplayName } from '../utils/displayName.util';
 import { AccountStatus } from '../types';
 import { z } from 'zod';
 import { listRevenueRecords, markRevenueAsReceived, summarizeRevenue } from '../services/revenue.service';
@@ -257,7 +258,7 @@ export async function listAllBookings(req: Request, res: Response, next: NextFun
 
     const bookings = await Promise.all(snapshot.docs.map(async (doc: any) => {
       const data = doc.data();
-      let customerName = data.customerName || data.playerName;
+      let customerName = data.customerName || data.playerName || data.parentName;
 
       // If customerName is missing, try to fetch it from the users collection
       if (!customerName && (data.userId || data.playerId || data.parentId || data.uid)) {
@@ -266,7 +267,7 @@ export async function listAllBookings(req: Request, res: Response, next: NextFun
           const userDoc = await db.collection('users').doc(userId).get();
           if (userDoc.exists) {
             const userData = userDoc.data();
-            customerName = userData?.name || `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim();
+            customerName = resolveUserDisplayName(userData);
           }
         } catch (err) {
           console.error('Error fetching user name for booking:', doc.id, err);
@@ -315,7 +316,7 @@ export async function getBookingById(req: Request, res: Response, next: NextFunc
     }
 
     const bookingData = bookingDoc.data();
-    let customerName = bookingData?.customerName || bookingData?.playerName;
+    let customerName = bookingData?.customerName || bookingData?.playerName || bookingData?.parentName;
 
     if (!customerName && (bookingData?.userId || bookingData?.playerId || bookingData?.parentId || bookingData?.uid)) {
       try {
@@ -323,7 +324,7 @@ export async function getBookingById(req: Request, res: Response, next: NextFunc
         const userDoc = await db.collection('users').doc(userId).get();
         if (userDoc.exists) {
           const userData = userDoc.data();
-          customerName = userData?.name || `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim();
+          customerName = resolveUserDisplayName(userData);
         }
       } catch (err) {
         console.error('Error fetching user name for booking:', id, err);

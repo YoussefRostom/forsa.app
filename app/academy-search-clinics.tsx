@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import Slider from '@react-native-community/slider';
 import React, { useRef, useState, useEffect } from 'react';
-import { Animated, Easing, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, RefreshControl } from 'react-native';
+import { Animated, Easing, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, RefreshControl } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { db } from '../lib/firebase';
 import { collection, getDocs, query } from 'firebase/firestore';
+import FootballLoader from '../components/FootballLoader';
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
 const servicesList = [
@@ -41,13 +43,34 @@ export default function AcademySearchClinicsScreen() {
   const [cityModal, setCityModal] = useState(false);
   const [service, setService] = useState('');
   const [serviceModal, setServiceModal] = useState(false);
-  const [price, setPrice] = useState('');
+  const [price, setPrice] = useState<number | null>(null);
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const maxAvailablePrice = React.useMemo(() => {
+    let maxPrice = 0;
+
+    clinics.forEach((clinic) => {
+      if (clinic?.servicePrices && typeof clinic.servicePrices === 'object') {
+        Object.values(clinic.servicePrices).forEach((value) => {
+          const numericValue = Number(value);
+          if (Number.isFinite(numericValue) && numericValue > maxPrice) {
+            maxPrice = numericValue;
+          }
+        });
+      }
+
+      const numericMinPrice = Number(clinic?.minPrice);
+      if (Number.isFinite(numericMinPrice) && numericMinPrice > maxPrice) {
+        maxPrice = numericMinPrice;
+      }
+    });
+
+    return Math.max(0, Math.round(maxPrice));
+  }, [clinics]);
 
   const fetchClinics = React.useCallback(async (isRefresh = false) => {
     try {
@@ -118,29 +141,44 @@ export default function AcademySearchClinicsScreen() {
     fetchClinics();
   }, [fetchClinics]);
 
+  useEffect(() => {
+    if (maxAvailablePrice <= 0) {
+      setPrice(null);
+      return;
+    }
+
+    setPrice((prev) => {
+      if (prev === null) return maxAvailablePrice;
+      return Math.min(maxAvailablePrice, Math.max(0, Math.round(prev)));
+    });
+  }, [maxAvailablePrice]);
+
   const getServicePrice = (clinic: Clinic, selectedService: string): number => {
     if (!selectedService) return clinic.minPrice;
     return clinic.servicePrices[selectedService] ?? Infinity;
   };
 
+  const sliderMaxPrice = Math.max(1, maxAvailablePrice);
+  const selectedMaxPrice = price ?? maxAvailablePrice;
+  const hasPriceFilter = maxAvailablePrice > 0 && selectedMaxPrice < maxAvailablePrice;
+
   const filtered = clinics.filter(c => {
     const currentPrice = getServicePrice(c, service);
-    const maxPrice = parseInt(price.trim());
     const passes = (
       (!name || c.clinicName.toLowerCase().includes(name.toLowerCase())) &&
       (!city || String(c.city || '').toLowerCase() === String(city || '').toLowerCase()) &&
       (!service || c.services.includes(service)) &&
-      (!price.trim() || isNaN(maxPrice) || currentPrice <= maxPrice)
+      (!hasPriceFilter || currentPrice <= selectedMaxPrice)
     );
     return passes;
   });
-  const hasActiveFilters = Boolean(name || city || service || price);
+  const hasActiveFilters = Boolean(name || city || service || hasPriceFilter);
 
   const clearAllFilters = () => {
     setName('');
     setCity('');
     setService('');
-    setPrice('');
+    setPrice(null);
   };
 
   return (
@@ -271,24 +309,37 @@ export default function AcademySearchClinicsScreen() {
             </Modal>
 
             <View style={styles.filterRow}>
-              <View style={[styles.filterInputWrapper, !service && styles.filterInputDisabled]}>
-                <Ionicons name="cash-outline" size={20} color={service ? '#999' : '#666'} style={styles.filterIcon} />
-                <TextInput
-                  style={[styles.filterInput, !service && styles.filterInputDisabledText]}
-                  value={price}
-                  onChangeText={(text) => setPrice(text.trim())}
-                  placeholder={i18n.t('maxPrice') || 'Max Price'}
-                  placeholderTextColor={service ? '#999' : '#666'}
-                  keyboardType="numeric"
-                  editable={!!service}
+              <View style={styles.priceMeterCard}>
+                <View style={styles.priceMeterHeader}>
+                  <View style={styles.priceMeterTitleWrap}>
+                    <Ionicons name="cash-outline" size={18} color="#111827" />
+                    <Text style={styles.priceMeterLabel}>{i18n.t('maxPrice') || 'Max Price'}</Text>
+                  </View>
+                  <Text style={styles.priceMeterValue}>{Math.round(selectedMaxPrice)} EGP</Text>
+                </View>
+                <Slider
+                  style={styles.priceMeterSlider}
+                  minimumValue={0}
+                  maximumValue={sliderMaxPrice}
+                  step={1}
+                  value={Math.min(sliderMaxPrice, Math.max(0, selectedMaxPrice))}
+                  onValueChange={(value) => setPrice(Math.round(value))}
+                  minimumTrackTintColor="#111827"
+                  maximumTrackTintColor="#d1d5db"
+                  thumbTintColor="#111827"
+                  disabled={maxAvailablePrice === 0}
                 />
               </View>
+            </View>
+            <View style={styles.priceRangeMetaRow}>
+              <Text style={styles.priceRangeMetaText}>0 EGP</Text>
+              <Text style={styles.priceRangeMetaText}>{maxAvailablePrice} EGP</Text>
             </View>
           </ScrollView>
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#fff" />
+              <FootballLoader size="large" color="#fff" />
               <Text style={styles.loadingText}>{i18n.t('loadingClinics') || 'Loading clinics...'}</Text>
             </View>
           ) : loadError && clinics.length === 0 ? (
@@ -460,6 +511,52 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 18,
     paddingVertical: 10,
+  },
+  priceMeterCard: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#f5f5f5',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  priceMeterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  priceMeterTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  priceMeterLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  priceMeterValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  priceMeterSlider: {
+    width: '100%',
+    height: 34,
+  },
+  priceRangeMetaRow: {
+    marginTop: -4,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+  },
+  priceRangeMetaText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '600',
   },
   retryButtonText: {
     fontSize: 14,

@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../../lib/firebase';
 import { addAdminNote, logAdminAction, subscribeAdminNotes } from '../../../services/AdminOpsService';
+import FootballLoader from '../../../components/FootballLoader';
 
 const resolveDisplayName = (user: any) => {
     const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
 
     return (
+        user?.username ||
+        user?.displayName ||
         user?.name ||
         user?.academyName ||
         user?.clinicName ||
@@ -108,7 +111,7 @@ export default function UserDetails() {
         }
     };
 
-    if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#000" /></View>;
+    if (loading) return <View style={styles.center}><FootballLoader size="large" color="#000" /></View>;
     if (!user) return <View style={styles.center}><Text>User not found</Text></View>;
 
     const displayName = resolveDisplayName(user);
@@ -166,7 +169,7 @@ export default function UserDetails() {
                     onChangeText={setNewNote}
                 />
                 <TouchableOpacity style={[styles.btn, styles.approveBtn, { marginHorizontal: 0, marginTop: 10 }]} onPress={handleAddNote}>
-                    {savingNote ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Save Note</Text>}
+                    {savingNote ? <FootballLoader color="#fff" /> : <Text style={styles.btnText}>Save Note</Text>}
                 </TouchableOpacity>
 
                 <View style={{ marginTop: 16 }}>

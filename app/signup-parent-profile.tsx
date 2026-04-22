@@ -5,7 +5,6 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import React, { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -20,6 +19,7 @@ import {
   View
 } from 'react-native';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import { writeEmailIndex } from '../lib/emailIndex';
 import { writePhoneIndex } from '../lib/phoneIndex';
 import {
@@ -32,6 +32,7 @@ import {
   normalizePhoneForTwilio,
 } from '../lib/validations';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 // OTP functionality commented out - direct Firebase signup enabled
 // import OtpModal from '../components/OtpModal';
 // import { getBackendUrl } from '../lib/config';
@@ -221,6 +222,7 @@ const SignupParent = () => {
         role: 'parent',
         status: 'active',
         isSuspended: false,
+        username: resolveUserDisplayName({ parentName }, 'Parent'),
         email: email && email.trim().length > 0 ? email.trim() : null,
         phone,
         parentName,
@@ -519,7 +521,7 @@ const SignupParent = () => {
                 >
                   <View style={styles.signupButtonContent}>
                     {loading ? (
-                      <ActivityIndicator color="#fff" />
+                      <FootballLoader color="#fff" />
                     ) : (
                       <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
                     )}

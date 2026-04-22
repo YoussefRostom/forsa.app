@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Platform, View, Text, TextInput, TouchableOpacity, FlatList, ActivityIndicator, StyleSheet, Alert, Image } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { getOrCreateConversation, sendMessage, subscribeToMessages, markMessages
 import { auth, db } from '../../lib/firebase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
+import FootballLoader from '../../components/FootballLoader';
 
 const C = {
   bg: '#edf2f8',
@@ -286,7 +287,7 @@ export default function AdminUserChat() {
       {loading ? (
         <View style={S.center}>
           <View style={S.loadingOrb}>
-            <ActivityIndicator size="large" color={C.blue} />
+            <FootballLoader size="large" color={C.blue} />
           </View>
           <Text style={S.loadingTitle}>Loading conversation</Text>
           <Text style={S.loadingText}>Pulling the latest messages for this user.</Text>
@@ -418,7 +419,7 @@ export default function AdminUserChat() {
             disabled={!conversationIdState || sending || !input.trim()}
           >
             {sending ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <FootballLoader size="small" color="#fff" />
             ) : (
               <Ionicons name="send" size={18} color="#fff" />
             )}

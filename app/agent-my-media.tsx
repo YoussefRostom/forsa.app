@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useState } from 'react';
-import { Alert, ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { updateMediaCaption, deleteAdminMedia, type MediaDoc } from '../services/MediaService';
@@ -131,7 +132,7 @@ export default function AgentMyMediaScreen() {
   if (loading) {
     return (
       <LinearGradient colors={['#000000', '#1a1a1a', '#2d2d2d']} style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
         <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
       </LinearGradient>
     );
@@ -163,7 +164,8 @@ export default function AgentMyMediaScreen() {
                 <Text style={styles.heroStripSub}>
                   {mediaList.length === 0
                     ? (i18n.t('mediaLibraryHint') || 'Your posts and footage will appear here.')
-                    : `${mediaList.length} post${mediaList.length !== 1 ? 's' : ''} · ${imageCount} photo${imageCount !== 1 ? 's' : ''} · ${videoCount} video${videoCount !== 1 ? 's' : ''}`}
+                    : (i18n.t('myMediaDetailedSummary', { count: mediaList.length, images: imageCount, videos: videoCount })
+                      || `${mediaList.length} posts · ${imageCount} photos · ${videoCount} videos`)}
                 </Text>
               </View>
             </View>
@@ -247,7 +249,7 @@ export default function AgentMyMediaScreen() {
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.deleteButton} onPress={() => handleDelete(media)} disabled={deleting === media.id}>
                         {deleting === media.id ? (
-                          <ActivityIndicator size="small" color="#fca5a5" />
+                          <FootballLoader size="small" color="#fca5a5" />
                         ) : (
                           <>
                             <Ionicons name="trash-outline" size={16} color="#fca5a5" />
@@ -290,7 +292,7 @@ export default function AgentMyMediaScreen() {
                     onPress={handleSaveEdit}
                     disabled={saving || unchangedCaption}
                   >
-                    {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
+                    {saving ? <FootballLoader size="small" color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
                   </TouchableOpacity>
                 </View>
               </View>

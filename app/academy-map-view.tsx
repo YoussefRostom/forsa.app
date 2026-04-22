@@ -2,9 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
-import { ActivityIndicator, Alert, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import i18n from '../locales/i18n';
+import FootballLoader from '../components/FootballLoader';
 
 const extractCoordinatesFromMapUrl = (mapUrl?: string) => {
   if (!mapUrl?.trim()) return null;
@@ -184,7 +185,7 @@ export default function AcademyMapViewScreen() {
                 startInLoadingState
                 renderLoading={() => (
                   <View style={styles.loaderWrap}>
-                    <ActivityIndicator size="large" color="#000" />
+                    <FootballLoader size="large" color="#000" />
                   </View>
                 )}
               />
@@ -195,7 +196,7 @@ export default function AcademyMapViewScreen() {
                 startInLoadingState
                 renderLoading={() => (
                   <View style={styles.loaderWrap}>
-                    <ActivityIndicator size="large" color="#000" />
+                    <FootballLoader size="large" color="#000" />
                   </View>
                 )}
               />

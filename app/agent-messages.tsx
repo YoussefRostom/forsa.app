@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator, Image, Alert } from 'react-native';
+import { Animated, Easing, FlatList, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View, Image, Alert } from 'react-native';
 import i18n from '../locales/i18n';
 import {
   getOrCreateConversation,
@@ -13,6 +13,7 @@ import {
   findAdminUserId,
 } from '../services/MessagingService';
 import { auth } from '../lib/firebase';
+import FootballLoader from '../components/FootballLoader';
 
 export default function AgentMessagesScreen() {
   const router = useRouter();
@@ -158,7 +159,7 @@ export default function AgentMessagesScreen() {
                 <TouchableOpacity onPress={openAdminChat} disabled={openingAdminChat} style={{ opacity: openingAdminChat ? 0.6 : 1 }}>
                   <View style={styles.textAdminBtn}>
                     {openingAdminChat ? (
-                      <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
+                      <FootballLoader size="small" color="#fff" style={{ marginRight: 6 }} />
                     ) : (
                       <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" style={{marginRight: 6}} />
                     )}
@@ -177,7 +178,7 @@ export default function AgentMessagesScreen() {
       {/* Chat Area */}
       {loading ? (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color="#fff" />
+          <FootballLoader size="large" color="#fff" />
           <Text style={{ marginTop: 12, color: 'rgba(255, 255, 255, 0.7)' }}>{i18n.t('loading') || 'Loading messages...'}</Text>
         </View>
       ) : (

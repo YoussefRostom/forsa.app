@@ -2,12 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState, useEffect } from 'react';
-import { Animated, Easing, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Image, Alert } from 'react-native';
+import { Animated, Easing, FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View, Image, Alert } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { subscribeToConversations, Conversation, findAdminUserId, getOrCreateConversation } from '../services/MessagingService';
 import { auth } from '../lib/firebase';
+import FootballLoader from '../components/FootballLoader';
 
 export default function AgentContactsScreen() {
   const router = useRouter();
@@ -85,7 +86,7 @@ export default function AgentContactsScreen() {
               <TouchableOpacity onPress={openAdminChat} disabled={openingAdminChat} style={{ opacity: openingAdminChat ? 0.6 : 1 }}>
                 <View style={styles.textAdminBtn}>
                   {openingAdminChat ? (
-                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 6 }} />
+                    <FootballLoader size="small" color="#fff" style={{ marginRight: 6 }} />
                   ) : (
                     <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
                   )}
@@ -103,7 +104,7 @@ export default function AgentContactsScreen() {
 
       {loading ? (
         <View style={styles.emptyState}>
-          <ActivityIndicator size="large" color="#fff" />
+          <FootballLoader size="large" color="#fff" />
           <Text style={styles.emptyText}>{i18n.t('loading') || 'Loading...'}</Text>
         </View>
       ) : (

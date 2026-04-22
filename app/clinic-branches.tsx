@@ -2,9 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
+import FootballLoader from '../components/FootballLoader';
 
 type BranchRecord = {
   id: string;
@@ -53,7 +54,7 @@ export default function ClinicBranchesScreen() {
   if (loading) {
     return (
       <View style={styles.loaderWrap}>
-        <ActivityIndicator size="large" color="#111827" />
+        <FootballLoader size="large" color="#111827" />
       </View>
     );
   }

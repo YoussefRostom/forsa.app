@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, onSnapshot, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -10,6 +10,7 @@ import { getBookingStatusMeta } from '../../../lib/bookingStatus';
 import { notifyBookingStatusChange } from '../../../lib/bookingNotifications';
 import { upsertBookingTransaction } from '../../../services/MonetizationService';
 import { logAdminAction } from '../../../services/AdminOpsService';
+import FootballLoader from '../../../components/FootballLoader';
 
 const normalizeName = (value: any) => {
     const text = String(value || '').trim();
@@ -246,7 +247,7 @@ export default function AdminBookingDetailsScreen() {
     if (loading) {
         return (
             <View style={S.center}>
-                <ActivityIndicator size="large" />
+                <FootballLoader size="large" />
                 <Text>Loading...</Text>
             </View>
         );

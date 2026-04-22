@@ -3,9 +3,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
+import FootballLoader from '../components/FootballLoader';
 
 type BranchDraft = {
   name: string;
@@ -318,7 +319,7 @@ export default function AcademyEditBranchScreen() {
   if (loading) {
     return (
       <View style={styles.loaderWrap}>
-        <ActivityIndicator size="large" color="#111827" />
+        <FootballLoader size="large" color="#111827" />
       </View>
     );
   }
@@ -389,7 +390,7 @@ export default function AcademyEditBranchScreen() {
         </View>
 
         <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
+          {saving ? <FootballLoader color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
         </TouchableOpacity>
 
         <Modal visible={showCityModal} transparent animationType="fade" onRequestClose={() => setShowCityModal(false)}>

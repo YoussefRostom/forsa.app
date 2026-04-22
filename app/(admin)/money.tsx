@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../lib/firebase';
 import {
@@ -11,6 +11,7 @@ import {
   saveMonetizationSettings,
 } from '../../services/MonetizationService';
 import { createNotificationsLocallyForUsers, getClinicAndAcademyUserIds } from '../../services/NotificationService';
+import FootballLoader from '../../components/FootballLoader';
 
 const C = {
   bg: '#f0f4f8',
@@ -218,7 +219,7 @@ export default function AdminMoneyScreen() {
   if (loading) {
     return (
       <View style={S.center}>
-        <ActivityIndicator size="large" color={C.blue} />
+        <FootballLoader size="large" color={C.blue} />
         <Text style={S.loadingText}>Loading money data...</Text>
       </View>
     );
@@ -279,7 +280,7 @@ export default function AdminMoneyScreen() {
             placeholderTextColor={C.muted}
           />
           <TouchableOpacity style={S.saveBtn} onPress={handleSaveCommissionSettings} disabled={savingSettings}>
-            {savingSettings ? <ActivityIndicator color="#fff" size="small" /> : <Text style={S.saveBtnText}>Save Commission Settings</Text>}
+            {savingSettings ? <FootballLoader color="#fff" size="small" /> : <Text style={S.saveBtnText}>Save Commission Settings</Text>}
           </TouchableOpacity>
           <TouchableOpacity
             style={[S.saveBtn, { backgroundColor: C.amber, marginTop: 8 }]}
@@ -287,7 +288,7 @@ export default function AdminMoneyScreen() {
             disabled={backfilling}
           >
             {backfilling ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <FootballLoader color="#fff" size="small" />
             ) : (
               <Text style={S.saveBtnText}>Backfill Historical Voided Net</Text>
             )}
@@ -389,7 +390,7 @@ export default function AdminMoneyScreen() {
                     onPress={() => handleMarkPaid(item.id)}
                     disabled={markingId === item.id}
                   >
-                    {markingId === item.id ? <ActivityIndicator color="#fff" size="small" /> : <Text style={S.payBtnText}>Mark as Paid</Text>}
+                    {markingId === item.id ? <FootballLoader color="#fff" size="small" /> : <Text style={S.payBtnText}>Mark as Paid</Text>}
                   </TouchableOpacity>
                 )}
               </View>

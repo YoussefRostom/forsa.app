@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
-  ActivityIndicator,
   ScrollView,
   Platform,
 } from 'react-native';
@@ -17,6 +16,7 @@ import i18n from '../locales/i18n';
 import { getCurrentUserCheckInCode, ensureCheckInCodeForCurrentUser } from '../services/CheckInCodeService';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import FootballLoader from '../components/FootballLoader';
 
 function SimpleQRCode({ value, size = 250 }: { value: string; size?: number }) {
   return <PureQRCode value={value || 'forsa_checkin:unavailable'} size={size} color="#000" backgroundColor="#fff" quietZone={12} />;
@@ -107,7 +107,7 @@ export default function MyQrCodeScreen() {
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <FootballLoader size="large" color="#007AFF" />
           <Text style={styles.loadingText}>
             {generating ? (i18n.t('generatingQrCode') || 'Generating QR code...') : (i18n.t('loading') || 'Loading...')}
           </Text>

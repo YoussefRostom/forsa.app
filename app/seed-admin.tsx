@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { LinearGradient } from 'expo-linear-gradient';
+import FootballLoader from '../components/FootballLoader';
 
 export default function SeedAdmin() {
     const [email, setEmail] = useState('');
@@ -87,7 +88,7 @@ export default function SeedAdmin() {
                     onPress={handleSeed}
                     disabled={loading || !__DEV__}
                 >
-                    {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Admin</Text>}
+                    {loading ? <FootballLoader color="#fff" /> : <Text style={styles.buttonText}>Create Admin</Text>}
                 </TouchableOpacity>
 
                 <TouchableOpacity onPress={() => router.back()} style={styles.backLink}>

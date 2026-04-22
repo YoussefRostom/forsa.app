@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert, RefreshControl } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, Alert, RefreshControl } from 'react-native';
+import FootballLoader from '../components/FootballLoader';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { formatBookingBranch } from '../lib/bookingBranch';
@@ -15,6 +16,7 @@ import { collection, query, where, getDocs, doc, updateDoc, onSnapshot } from 'f
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import { findAdminUserId } from '../services/MessagingService';
 import { upsertBookingTransaction } from '../services/MonetizationService';
+import { getPendingBookings, subscribePendingBookings } from '../lib/pendingBookingStore';
 
 export default function PlayerBookingsScreen() {
   const { openMenu } = useHamburgerMenu();
@@ -26,6 +28,8 @@ export default function PlayerBookingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<{ id: string; type: 'cancel' | 'accept' | 'reject' } | null>(null);
   const [openingAdminChat, setOpeningAdminChat] = useState(false);
+  const [pendingVersion, setPendingVersion] = useState(0);
+  const meterAnim = useRef(new Animated.Value(0)).current;
 
   const normalizeBooking = (booking: any) => {
     const bookingType = booking?.type || booking?.bookingType || (booking?.service ? 'clinic' : 'academy');
@@ -90,6 +94,36 @@ export default function PlayerBookingsScreen() {
   }, []);
 
   useEffect(() => {
+    const unsubscribe = subscribePendingBookings(() => {
+      setPendingVersion((prev) => prev + 1);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const meterLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(meterAnim, {
+          toValue: 1,
+          duration: 1400,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+        Animated.timing(meterAnim, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: false,
+        }),
+      ])
+    );
+
+    meterLoop.start();
+    return () => meterLoop.stop();
+  }, [meterAnim]);
+
+  useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 600,
@@ -130,6 +164,12 @@ export default function PlayerBookingsScreen() {
       unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
   }, [fetchBookings]);
+
+  const bookingsWithPending = useMemo(() => {
+    const pendingBookings = getPendingBookings('player');
+    const combined = [...pendingBookings, ...bookings];
+    return combined.sort((a, b) => getBookingSortTime(b) - getBookingSortTime(a));
+  }, [bookings, pendingVersion]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -247,8 +287,8 @@ export default function PlayerBookingsScreen() {
   };
 
   const filteredBookings = filter === 'all' 
-    ? bookings 
-    : bookings.filter(b => (b.type || b.bookingType) === filter);
+    ? bookingsWithPending 
+    : bookingsWithPending.filter(b => (b.type || b.bookingType) === filter);
 
   const getStatusMeta = (status: string) => getBookingStatusMeta(status, i18n);
 
@@ -311,7 +351,7 @@ export default function PlayerBookingsScreen() {
           >
             {loading ? (
               <View style={styles.emptyContainer}>
-                <ActivityIndicator size="large" color="#fff" />
+                <FootballLoader size="large" color="#fff" />
                 <Text style={styles.emptyText}>{i18n.t('loading') || 'Loading...'}</Text>
               </View>
             ) : filteredBookings.length === 0 ? (
@@ -323,6 +363,13 @@ export default function PlayerBookingsScreen() {
             ) : (
               filteredBookings.map((booking) => (
                 <View key={booking.id} style={styles.bookingCard}>
+                  {booking.__pendingBooking ? (
+                    <View style={styles.pendingPill}>
+                      <Ionicons name="time-outline" size={14} color="#dbeafe" />
+                      <Text style={styles.pendingPillText}>{i18n.t('bookingProcessing') || 'Processing'}</Text>
+                    </View>
+                  ) : null}
+
                   <View style={styles.bookingHeader}>
                     <View style={styles.bookingTypeContainer}>
                       <Ionicons 
@@ -340,9 +387,103 @@ export default function PlayerBookingsScreen() {
                   </View>
 
                   <Text style={styles.bookingName}>{booking.name}</Text>
-                  <View style={styles.bookingIdBadge}>
-                    <Text style={styles.bookingIdText}>{i18n.t('bookingId') || 'Booking ID'}: {getBookingPublicId(booking)}</Text>
-                  </View>
+                  {!booking.__pendingBooking ? (
+                    <View style={styles.bookingIdBadge}>
+                      <Text style={styles.bookingIdText}>{i18n.t('bookingId') || 'Booking ID'}: {getBookingPublicId(booking)}</Text>
+                    </View>
+                  ) : null}
+
+                  {booking.__pendingBooking ? (
+                    <View style={styles.progressWrap}>
+                      {(() => {
+                        const animatedFillWidth = meterAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['24%', '82%'],
+                        });
+                        const animatedPointerLeft = meterAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['22%', '80%'],
+                        });
+                        const animatedShimmerLeft = meterAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['-20%', '92%'],
+                        });
+                        const animatedFootballRotate = meterAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['-18deg', '18deg'],
+                        });
+                        const animatedFootballLift = meterAnim.interpolate({
+                          inputRange: [0, 0.5, 1],
+                          outputRange: [0, -2, 0],
+                        });
+
+                        return (
+                          <View style={styles.progressTrack}>
+                            <View style={styles.progressTrackMarkers} pointerEvents="none">
+                              <View style={styles.progressTrackMarker} />
+                              <View style={styles.progressTrackMarker} />
+                              <View style={styles.progressTrackMarker} />
+                              <View style={styles.progressTrackMarker} />
+                              <View style={styles.progressTrackMarker} />
+                            </View>
+
+                            {booking.status === 'failed' ? (
+                              <View
+                                style={[
+                                  styles.progressFill,
+                                  { width: '100%', backgroundColor: '#111111' },
+                                ]}
+                              />
+                            ) : (
+                              <Animated.View
+                                style={[
+                                  styles.progressFill,
+                                  { width: animatedFillWidth },
+                                ]}
+                              >
+                                <LinearGradient
+                                  colors={['#000000', '#262626', '#000000']}
+                                  start={{ x: 0, y: 0.5 }}
+                                  end={{ x: 1, y: 0.5 }}
+                                  style={styles.progressFillGradient}
+                                />
+                                <Animated.View style={[styles.progressShimmer, { left: animatedShimmerLeft }]}>
+                                  <LinearGradient
+                                    colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0)']}
+                                    start={{ x: 0, y: 0.5 }}
+                                    end={{ x: 1, y: 0.5 }}
+                                    style={styles.progressShimmerGradient}
+                                  />
+                                </Animated.View>
+                              </Animated.View>
+                            )}
+
+                            {booking.status === 'failed' ? (
+                              <View style={[styles.progressFootball, { left: '94%' }]}>
+                                <Ionicons name="football" size={18} color="#f5f5f5" />
+                              </View>
+                            ) : (
+                              <Animated.View
+                                style={[
+                                  styles.progressFootball,
+                                  {
+                                    left: animatedPointerLeft,
+                                    transform: [{ translateY: animatedFootballLift }, { rotate: animatedFootballRotate }],
+                                  },
+                                ]}
+                              >
+                                <Ionicons name="football" size={18} color="#f5f5f5" />
+                              </Animated.View>
+                            )}
+                          </View>
+                        );
+                      })()}
+                      <Text style={styles.progressText}>
+                        {booking.pendingMessage || getStatusMeta(booking.status).note || (i18n.t('bookingProcessingNote') || 'Your booking request is being sent right now.')}
+                      </Text>
+                    </View>
+                  ) : null}
+
                   {formatBookingBranch(booking) ? (
                     <View style={styles.bookingDetail}>
                       <Ionicons name="location-outline" size={16} color="rgba(255,255,255,0.7)" />
@@ -412,7 +553,7 @@ export default function PlayerBookingsScreen() {
                     <Text style={styles.bookingPrice}>{booking.price || 0} EGP</Text>
                   </View>
 
-                  {String(booking.status || '').toLowerCase() === 'confirmed' && (
+                  {!booking.__pendingBooking && String(booking.status || '').toLowerCase() === 'confirmed' && (
                     <TouchableOpacity
                       style={[styles.chatButton, { backgroundColor: '#2563eb', marginTop: 10 }]}
                       onPress={() =>
@@ -432,14 +573,14 @@ export default function PlayerBookingsScreen() {
                     </TouchableOpacity>
                   )}
 
-                  {!['cancelled', 'completed', 'no_show', 'refunded', 'failed_payment'].includes(String(booking.status || '').toLowerCase()) && (
+                  {!booking.__pendingBooking && !['cancelled', 'completed', 'no_show', 'refunded', 'failed_payment'].includes(String(booking.status || '').toLowerCase()) && (
                     <TouchableOpacity
                       style={[styles.chatButton, { backgroundColor: '#ef4444', marginTop: 12, opacity: actionLoading?.id === booking.id ? 0.6 : 1 }]}
                       onPress={() => handleCancelBooking(booking.id)}
                       disabled={actionLoading?.id === booking.id}
                     >
                       {actionLoading?.id === booking.id && actionLoading?.type === 'cancel' ? (
-                        <ActivityIndicator size="small" color="#fff" />
+                        <FootballLoader size="small" color="#fff" />
                       ) : (
                         <>
                           <Ionicons name="close-circle" size={18} color="#fff" />
@@ -449,7 +590,7 @@ export default function PlayerBookingsScreen() {
                     </TouchableOpacity>
                   )}
 
-                  {(booking.status === 'new_time_proposed' || booking.status === 'timing_proposed') && booking.proposedByAdmin && (
+                  {!booking.__pendingBooking && (booking.status === 'new_time_proposed' || booking.status === 'timing_proposed') && booking.proposedByAdmin && (
                     <View style={{flexDirection: 'row', gap: 12, marginTop: 12}}>
                       <TouchableOpacity
                         style={[styles.chatButton, {flex: 1, backgroundColor: '#10b981', marginTop: 0, opacity: actionLoading?.id === booking.id ? 0.6 : 1 }]}
@@ -457,7 +598,7 @@ export default function PlayerBookingsScreen() {
                         disabled={actionLoading?.id === booking.id}
                       >
                         {actionLoading?.id === booking.id && actionLoading?.type === 'accept' ? (
-                          <ActivityIndicator size="small" color="#fff" />
+                          <FootballLoader size="small" color="#fff" />
                         ) : (
                           <>
                             <Ionicons name="checkmark" size={18} color="#fff" />
@@ -471,7 +612,7 @@ export default function PlayerBookingsScreen() {
                         disabled={actionLoading?.id === booking.id}
                       >
                         {actionLoading?.id === booking.id && actionLoading?.type === 'reject' ? (
-                          <ActivityIndicator size="small" color="#fff" />
+                          <FootballLoader size="small" color="#fff" />
                         ) : (
                           <>
                             <Ionicons name="close" size={18} color="#fff" />
@@ -482,19 +623,19 @@ export default function PlayerBookingsScreen() {
                     </View>
                   )}
 
-                  <TouchableOpacity
+                  {!booking.__pendingBooking && <TouchableOpacity
                     style={[styles.chatButton, { opacity: openingAdminChat ? 0.6 : 1 }]}
                     onPress={openAdminChat}
                     disabled={openingAdminChat}
                     activeOpacity={0.8}
                   >
                     {openingAdminChat ? (
-                      <ActivityIndicator size="small" color="#000" />
+                      <FootballLoader size="small" color="#000" />
                     ) : (
                       <Ionicons name="chatbubbles" size={18} color="#000" />
                     )}
                     <Text style={styles.chatButtonText}>{openingAdminChat ? (i18n.t('loading') || 'Loading...') : (i18n.t('chatToAdmin') || 'Chat to Admin')}</Text>
-                  </TouchableOpacity>
+                  </TouchableOpacity>}
                   
                 </View>
               ))
@@ -648,6 +789,87 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.4,
     color: '#fff',
+  },
+  pendingPill: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(59, 130, 246, 0.22)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
+  },
+  pendingPillText: {
+    color: '#dbeafe',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  progressWrap: {
+    marginBottom: 12,
+  },
+  progressTrack: {
+    position: 'relative',
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#111111',
+    overflow: 'visible',
+  },
+  progressTrackMarkers: {
+    position: 'absolute',
+    top: 1,
+    left: 8,
+    right: 8,
+    bottom: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  progressTrackMarker: {
+    width: 2,
+    height: 5,
+    borderRadius: 2,
+    backgroundColor: '#d1d5db',
+  },
+  progressFill: {
+    position: 'relative',
+    height: '100%',
+    borderRadius: 999,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
+  progressFillGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  progressShimmer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '22%',
+  },
+  progressShimmerGradient: {
+    flex: 1,
+  },
+  progressFootball: {
+    position: 'absolute',
+    top: -6,
+    marginLeft: -9,
+    shadowColor: '#111111',
+    shadowOpacity: 0.26,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+    zIndex: 4,
+  },
+  progressText: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 18,
+    color: 'rgba(255, 255, 255, 0.86)',
   },
   bookingDetail: {
     flexDirection: 'row',

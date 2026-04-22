@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
     Alert,
     Keyboard,
     KeyboardAvoidingView,
@@ -16,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth } from '../lib/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { getBackendUrl } from '../lib/config';
+import FootballLoader from './FootballLoader';
 
 interface OtpModalProps {
     visible: boolean;
@@ -233,7 +233,7 @@ export default function OtpModal({
                         activeOpacity={0.85}
                     >
                         {loading ? (
-                            <ActivityIndicator color="#fff" />
+                            <FootballLoader color="#fff" />
                         ) : (
                             <Text style={styles.verifyBtnText}>Verify & Create Account</Text>
                         )}
@@ -247,7 +247,7 @@ export default function OtpModal({
                         ) : (
                             <TouchableOpacity onPress={handleResend} disabled={resendLoading}>
                                 {resendLoading ? (
-                                    <ActivityIndicator size="small" color="#000" />
+                                    <FootballLoader size="small" color="#000" />
                                 ) : (
                                     <Text style={styles.resendLink}>Resend OTP</Text>
                                 )}

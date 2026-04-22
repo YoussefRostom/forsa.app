@@ -2,9 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import i18n from '../locales/i18n';
 import { auth, db } from '../lib/firebase';
+import FootballLoader from '../components/FootballLoader';
 
 const CURRENCY = 'EGP';
 const AGE_OPTIONS = Array.from({ length: 16 }, (_, i) => String(i + 5));
@@ -176,7 +177,7 @@ export default function AcademyEditPricesScreen() {
 
         {loading ? (
           <View style={styles.loadingWrap}>
-            <ActivityIndicator color="#111827" />
+            <FootballLoader color="#111827" />
             <Text style={styles.loadingText}>{i18n.t('loading') || 'Loading...'}</Text>
           </View>
         ) : (
@@ -224,7 +225,7 @@ export default function AcademyEditPricesScreen() {
             </View>
 
             <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
+              {saving ? <FootballLoader color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
             </TouchableOpacity>
           </>
         )}

@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { collection, getFirestore, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import React, { useRef } from 'react';
 import { Animated, Easing, FlatList, Image, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import FootballLoader from '../components/FootballLoader';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import PostActionsMenu from '../components/PostActionsMenu';
@@ -354,9 +355,9 @@ export default function ParentFeedScreen() {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={handleRefresh}
-                  tintColor="#fff"
-                  colors={["#fff"]}
-                  progressBackgroundColor="#111827"
+                  tintColor="transparent"
+                  colors={["transparent"]}
+                  progressBackgroundColor="transparent"
                 />
               }
               initialNumToRender={5}
@@ -365,6 +366,12 @@ export default function ParentFeedScreen() {
               removeClippedSubviews={Platform.OS === 'android'}
               ListHeaderComponent={
                 <View style={styles.listIntroWrap}>
+                  {refreshing ? (
+                    <View style={styles.refreshBallWrap}>
+                      <FootballLoader size="small" color="#fff" />
+                    </View>
+                  ) : null}
+
                   <View style={styles.header}>
                     <TouchableOpacity style={styles.menuButton} onPress={openMenu}>
                       <Ionicons name="menu" size={24} color="#fff" />
@@ -460,6 +467,11 @@ const styles = StyleSheet.create({
   },
   listIntroWrap: {
     marginBottom: 12,
+  },
+  refreshBallWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 10,
   },
   composerCard: {
     backgroundColor: 'rgba(255,255,255,0.98)',

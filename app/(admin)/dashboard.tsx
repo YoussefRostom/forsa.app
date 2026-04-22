@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput, Modal, FlatList } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Modal, FlatList } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { auth, db } from '../../lib/firebase';
 import { getAdminOverviewMetrics, logAdminAction } from '../../services/AdminOpsService';
 import { removePost, suspendUser } from '../../services/ModerationService';
 import { updateReportStatus } from '../../services/ReportService';
+import FootballLoader from '../../components/FootballLoader';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -715,7 +716,7 @@ export default function AdminDashboard() {
     if (loading) {
         return (
             <View style={S.loadingScreen}>
-                <ActivityIndicator size="large" color={C.blue} />
+                <FootballLoader size="large" color={C.blue} />
                 <Text style={S.loadingText}>Loading your dashboard...</Text>
             </View>
         );
@@ -1020,7 +1021,7 @@ export default function AdminDashboard() {
 
                         {issueLoading ? (
                             <View style={{ paddingVertical: 30, alignItems: 'center' }}>
-                                <ActivityIndicator color={C.blue} />
+                                <FootballLoader color={C.blue} />
                                 <Text style={{ marginTop: 8, color: C.subtext }}>Loading affected users...</Text>
                             </View>
                         ) : issueUsers.length === 0 ? (
@@ -1168,7 +1169,7 @@ export default function AdminDashboard() {
 
                         {pricingLoading ? (
                             <View style={{ paddingVertical: 30, alignItems: 'center' }}>
-                                <ActivityIndicator color={C.blue} />
+                                <FootballLoader color={C.blue} />
                                 <Text style={{ marginTop: 8, color: C.subtext }}>Loading pricing editor...</Text>
                             </View>
                         ) : (
@@ -1232,7 +1233,7 @@ export default function AdminDashboard() {
                                         disabled={pricingSaving}
                                     >
                                         {pricingSaving ? (
-                                            <ActivityIndicator color="#fff" />
+                                            <FootballLoader color="#fff" />
                                         ) : (
                                             <Text style={[S.issueActionText, { color: '#fff' }]}>Save Pricing</Text>
                                         )}
@@ -1265,7 +1266,7 @@ export default function AdminDashboard() {
 
                         {profileLoading ? (
                             <View style={{ paddingVertical: 30, alignItems: 'center' }}>
-                                <ActivityIndicator color={C.blue} />
+                                <FootballLoader color={C.blue} />
                                 <Text style={{ marginTop: 8, color: C.subtext }}>Loading profile editor...</Text>
                             </View>
                         ) : (
@@ -1325,7 +1326,7 @@ export default function AdminDashboard() {
                                         disabled={profileSaving}
                                     >
                                         {profileSaving ? (
-                                            <ActivityIndicator color="#fff" />
+                                            <FootballLoader color="#fff" />
                                         ) : (
                                             <Text style={[S.issueActionText, { color: '#fff' }]}>Save Profile</Text>
                                         )}

@@ -7,12 +7,12 @@ import {
   StyleSheet,
   TextInput,
   Alert,
-  ActivityIndicator,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import i18n from '../locales/i18n';
 import { createReport, ReportReason, ReportTargetType, ReportSnapshot } from '../services/ReportService';
+import FootballLoader from './FootballLoader';
 
 interface ReportModalProps {
   visible: boolean;
@@ -156,7 +156,7 @@ export default function ReportModal({
               disabled={loading || !selectedReason}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <FootballLoader color="#fff" />
               ) : (
                 <Text style={styles.submitButtonText}>{i18n.t('submitReport')}</Text>
               )}

@@ -2,13 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
+import Slider from '@react-native-community/slider';
 import React, { useEffect, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert, FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import i18n from '../locales/i18n';
 import { db } from '../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import FootballLoader from '../components/FootballLoader';
 
 const cities = Object.entries(i18n.t('cities', { returnObjects: true }) as Record<string, string>).map(([key, label]) => ({ key, label }));
 const cityOptions = cities.filter(({ key }) => !['giza', 'newCairo'].includes(key));
@@ -245,7 +247,8 @@ export default function ParentSearchAcademiesScreen() {
   const [districtModal, setDistrictModal] = useState(false);
   const [age, setAge] = useState('');
   const [ageModal, setAgeModal] = useState(false);
-  const [price, setPrice] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [price, setPrice] = useState<number | null>(null);
   const [privateOnly, setPrivateOnly] = useState(false);
   const [sortBy, setSortBy] = useState('recommended');
   const [sortModal, setSortModal] = useState(false);
@@ -264,7 +267,42 @@ export default function ParentSearchAcademiesScreen() {
     : selectedDistricts.length <= 2
       ? selectedDistricts.join(', ')
       : (i18n.t('districtsSelectedCount', { count: selectedDistricts.length }) || `${selectedDistricts.length} districts selected`);
-  const hasActiveFilters = Boolean(name || city || selectedDistricts.length || age || price || privateOnly);
+  const maxAvailablePrice = React.useMemo(() => {
+    let maxFee = 0;
+
+    academies.forEach((academy) => {
+      if (academy?.fees && typeof academy.fees === 'object') {
+        Object.values(academy.fees).forEach((fee) => {
+          const numericFee = Number(fee);
+          if (Number.isFinite(numericFee) && numericFee > maxFee) {
+            maxFee = numericFee;
+          }
+        });
+      }
+
+      const privateTrainingCandidates = [
+        academy?.privateTraining,
+        ...(Array.isArray(academy?.privateTrainings) ? academy.privateTrainings : []),
+      ];
+
+      privateTrainingCandidates.forEach((candidate: any) => {
+        const numericFee = Number(candidate?.fee ?? candidate?.price);
+        if (Number.isFinite(numericFee) && numericFee > maxFee) {
+          maxFee = numericFee;
+        }
+      });
+    });
+
+    return Math.max(0, Math.round(maxFee));
+  }, [academies]);
+
+  const sliderMaxPrice = Math.max(1, maxAvailablePrice);
+  const selectedMaxPrice = price ?? maxAvailablePrice;
+  const hasPriceFilter = maxAvailablePrice > 0 && selectedMaxPrice < maxAvailablePrice;
+  const hasActiveFilters = Boolean(name || city || selectedDistricts.length || age || hasPriceFilter || privateOnly);
+  const activeFilterCount = [name, city, selectedDistricts.length > 0, age, hasPriceFilter, privateOnly]
+    .filter(Boolean)
+    .length;
   const sortOptions = [
     { key: 'recommended', label: i18n.t('recommendedSort') || 'Recommended' },
     { key: 'nearest', label: i18n.t('nearestToMeSort') || 'Nearest to me' },
@@ -278,6 +316,18 @@ export default function ParentSearchAcademiesScreen() {
   useEffect(() => {
     fetchAcademies();
   }, []);
+
+  useEffect(() => {
+    if (maxAvailablePrice <= 0) {
+      setPrice(null);
+      return;
+    }
+
+    setPrice((prev) => {
+      if (prev === null) return maxAvailablePrice;
+      return Math.min(maxAvailablePrice, Math.max(0, Math.round(prev)));
+    });
+  }, [maxAvailablePrice]);
 
   const fetchAcademies = async () => {
     try {
@@ -361,7 +411,7 @@ export default function ParentSearchAcademiesScreen() {
     setCity('');
     setSelectedDistricts([]);
     setAge('');
-    setPrice('');
+    setPrice(null);
     setPrivateOnly(false);
   };
 
@@ -441,7 +491,7 @@ export default function ParentSearchAcademiesScreen() {
           ? a.locations.some((location: any) => selectedDistricts.includes(location?.district || ''))
           : selectedDistricts.includes(a.district || ''))) &&
         (!age || (a.fees && a.fees[age] !== undefined)) &&
-        (!price || fee <= parseInt(price)) &&
+        (!hasPriceFilter || fee <= selectedMaxPrice) &&
         (!privateOnly || hasPrivateTraining(a))
       );
     })
@@ -523,17 +573,42 @@ export default function ParentSearchAcademiesScreen() {
             nestedScrollEnabled={true}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.filtersHeaderRow}>
-              <View style={styles.filtersHeadingWrap}>
-                <Text style={styles.filtersTitle}>{i18n.t('smartFiltersLabel') || 'Smart filters'}</Text>
-                <Text style={styles.filtersSubtitle}>{i18n.t('refineAcademyResults') || 'Refine the list to find the best fit faster.'}</Text>
+            <TouchableOpacity style={styles.smartFilterHeaderRow} activeOpacity={0.85} onPress={() => setShowFilters((v) => !v)}>
+              <View style={styles.smartFilterHeaderLeft}>
+                <View style={styles.smartFilterIconWrap}>
+                  <Ionicons name="options-outline" size={18} color="#111827" />
+                </View>
+                <View style={styles.smartFilterTextWrap}>
+                  <Text style={styles.smartFilterTitle}>{i18n.t('smartFiltersLabel') || 'Smart filters'}</Text>
+                  <Text style={styles.smartFilterSummaryText}>
+                    {activeFilterCount > 0
+                      ? `${activeFilterCount} ${(i18n.t('filters') || 'filters').toLowerCase()} active`
+                      : (i18n.t('tapToShowFilters') || 'Tap to show filters')}
+                  </Text>
+                </View>
               </View>
-              {hasActiveFilters && (
-                <TouchableOpacity style={styles.clearFiltersButton} onPress={clearAllFilters}>
-                  <Text style={styles.clearFiltersText}>{i18n.t('clearFilters') || 'Clear filters'}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+              <View style={styles.smartFilterHeaderRight}>
+                {activeFilterCount > 0 ? (
+                  <View style={styles.smartFilterCountBadge}>
+                    <Text style={styles.smartFilterCountText}>{activeFilterCount}</Text>
+                  </View>
+                ) : null}
+                <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={22} color="#444" />
+              </View>
+            </TouchableOpacity>
+
+            {showFilters ? (
+              <>
+                <View style={styles.filtersHeaderRow}>
+                  <View style={styles.filtersHeadingWrap}>
+                    <Text style={styles.filtersSubtitle}>{i18n.t('refineAcademyResults') || 'Refine the list to find the best fit faster.'}</Text>
+                  </View>
+                  {hasActiveFilters && (
+                    <TouchableOpacity style={styles.clearFiltersButton} onPress={clearAllFilters}>
+                      <Text style={styles.clearFiltersText}>{i18n.t('clearFilters') || 'Clear filters'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
             <View style={styles.filterRow}>
               <View style={styles.filterInputWrapper}>
@@ -729,18 +804,31 @@ export default function ParentSearchAcademiesScreen() {
             </Modal>
 
             <View style={styles.filterRow}>
-              <View style={[styles.filterInputWrapper, !age && styles.filterInputDisabled]}>
-                <Ionicons name="cash-outline" size={20} color={age ? '#999' : '#666'} style={styles.filterIcon} />
-                <TextInput
-                  style={[styles.filterInput, !age && styles.filterInputDisabledText]}
-                  value={price}
-                  onChangeText={(text) => setPrice(text.trim())}
-                  placeholder={i18n.t('maxPrice') || 'Max Price'}
-                  placeholderTextColor={age ? '#999' : '#666'}
-                  keyboardType="numeric"
-                  editable={!!age}
+              <View style={styles.priceMeterCard}>
+                <View style={styles.priceMeterHeader}>
+                  <View style={styles.priceMeterTitleWrap}>
+                    <Ionicons name="cash-outline" size={18} color="#111827" />
+                    <Text style={styles.priceMeterLabel}>{i18n.t('maxPrice') || 'Max Price'}</Text>
+                  </View>
+                  <Text style={styles.priceMeterValue}>{Math.round(selectedMaxPrice)} EGP</Text>
+                </View>
+                <Slider
+                  style={styles.priceMeterSlider}
+                  minimumValue={0}
+                  maximumValue={sliderMaxPrice}
+                  step={1}
+                  value={Math.min(sliderMaxPrice, Math.max(0, selectedMaxPrice))}
+                  onValueChange={(value) => setPrice(Math.round(value))}
+                  minimumTrackTintColor="#111827"
+                  maximumTrackTintColor="#d1d5db"
+                  thumbTintColor="#111827"
+                  disabled={maxAvailablePrice === 0}
                 />
               </View>
+            </View>
+            <View style={styles.priceRangeMetaRow}>
+              <Text style={styles.priceRangeMetaText}>0 EGP</Text>
+              <Text style={styles.priceRangeMetaText}>{maxAvailablePrice} EGP</Text>
             </View>
             <View style={styles.filterRow}>
               <TouchableOpacity style={[styles.filterInputWrapper, privateOnly && styles.filterInputActive]} onPress={() => setPrivateOnly(prev => !prev)}>
@@ -748,6 +836,8 @@ export default function ParentSearchAcademiesScreen() {
                 <Text style={[styles.filterText, privateOnly && styles.filterTextActive]}>{i18n.t('privateTrainerOnly') || 'Only private trainers'}</Text>
               </TouchableOpacity>
             </View>
+              </>
+            ) : null}
           </ScrollView>
 
           {!loading && (
@@ -784,7 +874,7 @@ export default function ParentSearchAcademiesScreen() {
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#fff" />
+              <FootballLoader size="large" color="#fff" />
               <Text style={styles.loadingText}>{i18n.t('loadingAcademies') || 'Loading academies...'}</Text>
             </View>
           ) : (
@@ -982,10 +1072,64 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-    maxHeight: 320, // Limit height to enable scrolling
   },
   filtersCardContent: {
     padding: 20,
+  },
+  smartFilterHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  smartFilterHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  smartFilterIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  smartFilterTextWrap: {
+    flex: 1,
+  },
+  smartFilterTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  smartFilterSummaryText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '600',
+  },
+  smartFilterHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 12,
+  },
+  smartFilterCountBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+  },
+  smartFilterCountText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 12,
   },
   filtersHeaderRow: {
     flexDirection: 'row',
@@ -1040,6 +1184,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     paddingVertical: 16,
+  },
+  priceMeterCard: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#f5f5f5',
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  priceMeterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  priceMeterTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  priceMeterLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  priceMeterValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  priceMeterSlider: {
+    width: '100%',
+    height: 34,
+  },
+  priceRangeMetaRow: {
+    marginTop: -4,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+  },
+  priceRangeMetaText: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '600',
   },
   filterText: {
     flex: 1,

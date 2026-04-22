@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Alert, RefreshControl } from 'react-native';
+import { Animated, Easing, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, Alert, RefreshControl } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { formatBookingBranch } from '../lib/bookingBranch';
@@ -15,6 +15,7 @@ import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, onS
 import { startConversationWithUser } from '../services/BookingMessagingService';
 import { findAdminUserId } from '../services/MessagingService';
 import { getMonetizationSettings, upsertBookingTransaction } from '../services/MonetizationService';
+import FootballLoader from '../components/FootballLoader';
 
 type BookingItem = {
   id: string;
@@ -378,7 +379,7 @@ export default function AcademyBookingsScreen() {
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#fff" />
+              <FootballLoader size="large" color="#fff" />
             </View>
           ) : (
             <ScrollView
@@ -499,7 +500,7 @@ export default function AcademyBookingsScreen() {
                           disabled={actionLoading?.id === booking.id}
                         >
                           {actionLoading?.id === booking.id && actionLoading?.type === 'accept' ? (
-                            <ActivityIndicator size="small" color="#fff" />
+                            <FootballLoader size="small" color="#fff" />
                           ) : (
                             <>
                               <Ionicons name="checkmark" size={18} color="#fff" />
@@ -513,7 +514,7 @@ export default function AcademyBookingsScreen() {
                           disabled={actionLoading?.id === booking.id}
                         >
                           {actionLoading?.id === booking.id && actionLoading?.type === 'reject' ? (
-                            <ActivityIndicator size="small" color="#fff" />
+                            <FootballLoader size="small" color="#fff" />
                           ) : (
                             <>
                               <Ionicons name="close" size={18} color="#fff" />
@@ -531,7 +532,7 @@ export default function AcademyBookingsScreen() {
                       activeOpacity={0.8}
                     >
                       {openingAdminChat ? (
-                        <ActivityIndicator size="small" color="#000" />
+                        <FootballLoader size="small" color="#000" />
                       ) : (
                         <Ionicons name="chatbubbles" size={18} color="#000" />
                       )}

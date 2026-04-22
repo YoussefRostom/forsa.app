@@ -101,6 +101,8 @@ const hasMeaningfulValue = (value: unknown) => typeof value === 'string' && valu
 const resolveDisplayName = (user: any, fallback = 'Unknown') => {
   if (!user) return fallback;
   return (
+    user.username ||
+    user.displayName ||
     user.name ||
     user.academyName ||
     user.clinicName ||

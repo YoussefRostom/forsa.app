@@ -5,7 +5,6 @@ import {
     FlatList,
     StyleSheet,
     TouchableOpacity,
-    ActivityIndicator,
     TextInput,
     ScrollView,
     RefreshControl,
@@ -15,6 +14,7 @@ import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import { getBookingPublicId } from '../../../lib/bookingId';
 import { db } from '../../../lib/firebase';
 import { getBookingStatusMeta } from '../../../lib/bookingStatus';
+import FootballLoader from '../../../components/FootballLoader';
 
 type TypeFilter = 'all' | 'academy' | 'clinic' | 'private';
 type BookerFilter = 'all' | 'parent' | 'player' | 'academy' | 'unknown';
@@ -380,7 +380,7 @@ export default function AdminBookingsListScreen() {
     if (loading) {
         return (
             <View style={S.center}>
-                <ActivityIndicator size="large" color="#0f172a" />
+                <FootballLoader size="large" color="#0f172a" />
                 <Text style={S.loadingText}>Loading bookings...</Text>
             </View>
         );

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -14,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { createNotification } from '../../services/NotificationService';
 import { getAdminOverviewMetrics, logAdminAction } from '../../services/AdminOpsService';
+import FootballLoader from '../../components/FootballLoader';
 
 const C = {
   bg: '#eef3f8',
@@ -181,7 +181,7 @@ export default function AdminTopRankingsScreen() {
   if (loading) {
     return (
       <View style={S.loadingWrap}>
-        <ActivityIndicator size="large" color={C.blue} />
+        <FootballLoader size="large" color={C.blue} />
         <Text style={S.loadingText}>Loading top rankings...</Text>
       </View>
     );
@@ -292,7 +292,7 @@ export default function AdminTopRankingsScreen() {
             />
 
             <TouchableOpacity style={S.sendBtn} onPress={sendOffer} disabled={sending}>
-              {sending ? <ActivityIndicator color="#fff" /> : <Text style={S.sendBtnText}>Send Now</Text>}
+              {sending ? <FootballLoader color="#fff" /> : <Text style={S.sendBtnText}>Send Now</Text>}
             </TouchableOpacity>
           </View>
         </View>

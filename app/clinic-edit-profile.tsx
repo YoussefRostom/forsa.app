@@ -4,12 +4,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HamburgerMenu from '../components/HamburgerMenu';
 import { useHamburgerMenu } from '../components/HamburgerMenuContext';
 import { auth, db } from '../lib/firebase';
+import { resolveUserDisplayName } from '../lib/userDisplayName';
 import i18n from '../locales/i18n';
 import { uploadMedia } from '../services/MediaService';
+import FootballLoader from '../components/FootballLoader';
 
 type ClinicProfileState = {
   clinicName: string;
@@ -109,6 +111,7 @@ export default function ClinicEditProfileScreen() {
 
       const payload = {
         clinicName: state.clinicName.trim(),
+        username: resolveUserDisplayName({ clinicName: state.clinicName }, 'Clinic'),
         email: state.email.trim() || null,
         description: state.description.trim(),
         contactPerson: state.contactPerson.trim() || null,
@@ -133,7 +136,7 @@ export default function ClinicEditProfileScreen() {
   if (loading) {
     return (
       <View style={styles.loaderWrap}>
-        <ActivityIndicator size="large" color="#fff" />
+        <FootballLoader size="large" color="#fff" />
       </View>
     );
   }
@@ -202,7 +205,7 @@ export default function ClinicEditProfileScreen() {
             )}
 
             <TouchableOpacity style={[styles.saveButton, saving && styles.saveButtonDisabled]} onPress={handleSave} disabled={saving}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
+              {saving ? <FootballLoader color="#fff" /> : <Text style={styles.saveButtonText}>{i18n.t('save') || 'Save'}</Text>}
             </TouchableOpacity>
           </View>
         </ScrollView>
