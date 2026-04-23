@@ -38,6 +38,7 @@ import {
 } from '../lib/validations';
 import i18n from '../locales/i18n';
 import FootballLoader from '../components/FootballLoader';
+import { notifyAdminsOfNewSignup } from '../services/SignupNotificationService';
 // OTP functionality commented out - direct Firebase signup enabled
 // import OtpModal from '../components/OtpModal';
 // import { getBackendUrl } from '../lib/config';
@@ -366,6 +367,17 @@ const SignupPlayer = () => {
         await writeEmailIndex(email.trim(), authEmail);
       }
       await writePhoneIndex(phoneForAuth, authEmail);
+
+      try {
+        await notifyAdminsOfNewSignup({
+          signupUserId: uid,
+          role: 'player',
+          userData,
+        });
+      } catch (error) {
+        console.warn('[SignupPlayer] Failed to notify admins about new signup:', error);
+      }
+
       // console.log('[Signup] Firestore saved! User is logged in and navigating to player-feed...');
 
       // Step 4: Generate check-in code (non-blocking)

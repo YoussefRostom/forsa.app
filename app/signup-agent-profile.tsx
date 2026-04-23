@@ -36,6 +36,7 @@ import {
 } from '../lib/validations';
 import i18n from '../locales/i18n';
 import FootballLoader from '../components/FootballLoader';
+import { notifyAdminsOfNewSignup } from '../services/SignupNotificationService';
 // OTP functionality commented out - direct Firebase signup enabled
 // import OtpModal from '../components/OtpModal';
 // import { getBackendUrl } from '../lib/config';
@@ -287,6 +288,16 @@ const SignupAgent = () => {
         await writeEmailIndex(userEmailForIndex, authEmail);
       }
       await writePhoneIndex(phoneForAuth, authEmail);
+
+      try {
+        await notifyAdminsOfNewSignup({
+          signupUserId: uid,
+          role: 'agent',
+          userData,
+        });
+      } catch (error) {
+        console.warn('[SignupAgent] Failed to notify admins about new signup:', error);
+      }
 
       // Step 4: User is already signed in, redirect to dashboard
       // console.log('[Signup] User is logged in and navigating to agent-feed...');

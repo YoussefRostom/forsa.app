@@ -33,6 +33,7 @@ import {
 } from '../lib/validations';
 import i18n from '../locales/i18n';
 import FootballLoader from '../components/FootballLoader';
+import { notifyAdminsOfNewSignup } from '../services/SignupNotificationService';
 // OTP functionality commented out - direct Firebase signup enabled
 // import OtpModal from '../components/OtpModal';
 // import { getBackendUrl } from '../lib/config';
@@ -238,6 +239,16 @@ const SignupParent = () => {
         await writeEmailIndex(userEmailForIndex, authEmail);
       }
       await writePhoneIndex(phoneForAuth, authEmail);
+
+      try {
+        await notifyAdminsOfNewSignup({
+          signupUserId: uid,
+          role: 'parent',
+          userData,
+        });
+      } catch (error) {
+        console.warn('[SignupParent] Failed to notify admins about new signup:', error);
+      }
 
       // Step 3: Generate check-in code (non-blocking)
       try {

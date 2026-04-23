@@ -139,6 +139,28 @@ function normalizeRequestedRecipients(userId?: string, userIds?: string[]): stri
   return [...new Set(requested)];
 }
 
+function isSignupNotificationRequest(
+  senderId: string,
+  type: NotificationType,
+  recipients: string[],
+  data: Record<string, string | number | boolean | null> | undefined,
+  adminIds: Set<string>
+): boolean {
+  if (type !== 'info' || recipients.length === 0) {
+    return false;
+  }
+
+  if (typeof data?.notificationKind !== 'string' || data.notificationKind !== 'signup') {
+    return false;
+  }
+
+  if (typeof data?.signupUserId !== 'string' || data.signupUserId !== senderId) {
+    return false;
+  }
+
+  return recipients.every((recipientId) => adminIds.has(recipientId));
+}
+
 export async function dispatchNotifications(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const senderId = (req as any).firebaseUser?.uid;
@@ -153,13 +175,20 @@ export async function dispatchNotifications(req: Request, res: Response, next: N
     const adminIds = await getAdminUserIds();
     const isAdminSender = senderRole === 'admin' || adminIds.has(senderId);
     const sanitizedData = stripNullValues(validated.data);
+    const isSignupNotification = isSignupNotificationRequest(
+      senderId,
+      validated.type as NotificationType,
+      requestedRecipients,
+      validated.data,
+      adminIds
+    );
 
     if (!isAdminSender && validated.type === 'system') {
       sendError(res, 'FORBIDDEN', 'Only admins can send system notifications', null, 403);
       return;
     }
 
-    if (!isAdminSender) {
+    if (!isAdminSender && !isSignupNotification) {
       const allowedRecipients = await resolveAllowedRecipients(senderId, validated.data, adminIds);
       const invalidRecipient = requestedRecipients.find((recipientId) => !allowedRecipients.has(recipientId));
       if (invalidRecipient) {

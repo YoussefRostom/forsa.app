@@ -39,6 +39,7 @@ import {
 import { uploadMedia } from '../services/MediaService';
 import i18n from '../locales/i18n';
 import FootballLoader from '../components/FootballLoader';
+import { notifyAdminsOfNewSignup } from '../services/SignupNotificationService';
 // import OtpModal from '../components/OtpModal'; // Removed
 
 function isValidTimeFormat(time: string): boolean {
@@ -940,6 +941,16 @@ const SignupClinic = () => {
         await writeEmailIndex(email.trim(), authEmail);
       }
       await writePhoneIndex(phoneForAuth, authEmail);
+
+      try {
+        await notifyAdminsOfNewSignup({
+          signupUserId: uid,
+          role: 'clinic',
+          userData,
+        });
+      } catch (error) {
+        console.warn('[SignupClinic] Failed to notify admins about new signup:', error);
+      }
 
       await AsyncStorage.multiRemove([
         CLINIC_SIGNUP_DRAFT_KEY,

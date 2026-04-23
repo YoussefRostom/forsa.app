@@ -42,6 +42,7 @@ import { uploadMedia } from '../services/MediaService';
 import i18n from '../locales/i18n';
 import { buildBookingBranchPayload, getBranchSummary, normalizeBookingBranches } from '../lib/bookingBranch';
 import FootballLoader from '../components/FootballLoader';
+import { notifyAdminsOfNewSignup } from '../services/SignupNotificationService';
 
 const LOCATION_PICKER_RESULT_KEY = 'academySignupLocationPickerResult';
 const EXTRA_LOCATION_PICKER_RESULT_KEY = 'academySignupExtraLocationPickerResult';
@@ -958,6 +959,16 @@ const SignupAcademy = () => {
       }
       // Save phone → authEmail mapping so sign-in by phone works (e.g. account created with email + phone)
       await writePhoneIndex(phoneForAuth, authEmail);
+
+      try {
+        await notifyAdminsOfNewSignup({
+          signupUserId: uid,
+          role: 'academy',
+          userData,
+        });
+      } catch (error) {
+        console.warn('[SignupAcademy] Failed to notify admins about new signup:', error);
+      }
 
       // Step 4: Create private training programs for each valid entry
       for (const training of privateTrainings) {
